@@ -47,4 +47,9 @@ class RulesTest {
         val other=issue.copy(repo="other/repo")
         assertEquals(2,workGroups(listOf(other,pr),mapOf(pr.key to detail),"me",emptySet()).size)
     }
+
+    @Test fun mergedPrIsDifferentFromClosedPr() {
+        val item=parseItem(org.json.JSONObject("{\"number\":1,\"state\":\"closed\",\"merged\":true,\"head\":{}}"),"owner/repo")
+        assertEquals("merged",item.state);assertFalse(Detail(item).safeCandidate)
+    }
 }

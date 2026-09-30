@@ -63,6 +63,7 @@ class GitHubRepository(val api: GitHubApi) {
             return Detail(fresh,comments,related.distinctBy { it.key },fetchedAt=System.currentTimeMillis(),partial=partial)
         }
         comments.addAll(safeArray("repos/${item.repo}/pulls/${item.number}/comments").map { Comment(it.str("body"),it.optJSONObject("user")?.str("login") ?: "",it.str("path"),it.optInt("line")) })
+        comments.addAll(safeArray("repos/${item.repo}/pulls/${item.number}/reviews").map { Comment("レビュー: ${it.str("state")}\n${it.str("body")}",it.optJSONObject("user")?.str("login") ?: "") })
         val changes=safeArray("repos/${item.repo}/pulls/${item.number}/files").map { ChangedFile(it.str("filename"),it.str("status"),it.optInt("additions"),it.optInt("deletions"),it.str("patch").takeIf { p->p.isNotEmpty() }) }
         val sha=root.getJSONObject("head").getString("sha")
         val checks=mutableListOf<Check>(); var checksKnown=true

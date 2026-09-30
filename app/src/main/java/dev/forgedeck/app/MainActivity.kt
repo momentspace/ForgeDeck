@@ -233,10 +233,18 @@ class MainActivity:ComponentActivity(){
                 item{OutlinedButton(onClick={form("comment")},enabled=!s.busy){Text("コメントする")}}
             }
             "checks"->{item{Text("レビュー条件: ${d.reviewDecision}\nマージ状態: ${d.mergeState}\n競合: ${d.mergeable?.let{if(it)"なし"else"あり"} ?: "未確認"}")};if(!d.checksKnown||d.checks.isEmpty())item{Text("チェックは未確認、または登録されていません。成功とは扱いません。")};items(d.checks.withIndex().toList(),key={it.index}){(_,c)->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){Text(c.name);Badge(c.state,c.state in setOf("failure","error","timed_out","cancelled","action_required"));if(c.url.isNotBlank())TextButton(onClick={web(c.url)}){Text("詳細・ログを開く")}}}}}
-            "diff"->items(d.files,key={it.path}){f->Column{Text(f.path,style=MaterialTheme.typography.titleMedium);Text("${f.status} · +${f.additions} / −${f.deletions}",style=MaterialTheme.typography.bodySmall);if(f.patch==null)Text("バイナリまたは省略された差分です。GitHubで確認してください。")else{val lines=patchLines(f.patch);if(lines.size>1000)Text("表示は先頭1000行です");lines.take(1000).forEach{line->DiffRow(line){number,side->inline=Triple(f.path,number,side)}}}}}
+            "diff"->d.files.forEach{f->
+                item(key="file-${f.path}"){Text(f.path,style=MaterialTheme.typography.titleMedium);Text("${f.status} · +${f.additions} / −${f.deletions}",style=MaterialTheme.typography.bodySmall)}
+                if(f.patch==null)item(key="missing-${f.path}"){Text("バイナリまたは省略された差分です。GitHubで確認してください。")}
+                else {
+                    val lines=patchLines(f.patch)
+                    if(lines.size>1000)item(key="limit-${f.path}"){Text("表示は先頭1000行です")}
+                    items(lines.take(1000).withIndex().toList(),key={"${f.path}-${it.index}"}){(_,line)->DiffRow(line){number,side->inline=Triple(f.path,number,side)}}
+                }
+            }
         }
         if(d.partial.isNotEmpty())item{Text(d.partial.joinToString("\n"),color=MaterialTheme.colorScheme.error)}
-        item{FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){if(item.isPr)OutlinedButton(onClick={form("review")},enabled=!s.busy){Text("レビューを書く")};if(item.isPr)Button(onClick={confirm("${item.repo} #${item.number}\n${d.headBranch} → ${d.baseBranch}\nSquash merge\n${d.headSha}\n送信直前に条件とコミットを再確認します。"){vm.merge("squash")}},enabled=!s.busy&&d.safeCandidate){Text("マージを確認")};OutlinedButton(onClick={confirm("${item.repo} #${item.number}を${if(item.state=="open")"閉じます"else"再開します"}"){vm.state(if(item.state=="open")"closed"else"open")}},enabled=!s.busy){Text(if(item.state=="open")"閉じる"else"再開")}}}
+        item{FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){if(item.isPr&&item.state=="open")OutlinedButton(onClick={form("review")},enabled=!s.busy){Text("レビューを書く")};if(item.isPr)Button(onClick={confirm("${item.repo} #${item.number}\n${d.headBranch} → ${d.baseBranch}\nSquash merge\n${d.headSha}\n送信直前に条件とコミットを再確認します。"){vm.merge("squash")}},enabled=!s.busy&&d.safeCandidate){Text("マージを確認")};OutlinedButton(onClick={confirm("${item.repo} #${item.number}を${if(item.state=="open")"閉じます"else"再開します"}"){vm.state(if(item.state=="open")"closed"else"open")}},enabled=!s.busy&&item.state!="merged"){Text(if(item.state=="open")"閉じる"else"再開")}}}
     }
     inline?.let{(path,line,side)->var body by rememberSaveable(path,line,side){mutableStateOf("")};var submitted by remember{mutableStateOf(false)};LaunchedEffect(s.busy,s.error){if(submitted&&!s.busy&&s.error.isEmpty()&&s.notice.isNotEmpty())inline=null};AlertDialog(onDismissRequest={if(!s.writing)inline=null},title={Text("差分にコメント")},text={Column{Text("$path:$line ($side)");OutlinedTextField(body,{body=it},label={Text("コメント")},enabled=!s.writing);if(s.error.isNotEmpty())Text(s.error,color=MaterialTheme.colorScheme.error)}},confirmButton={TextButton(onClick={submitted=true;vm.inline(path,line,side,body)},enabled=body.isNotBlank()&&!s.busy){Text("送信")}},dismissButton={TextButton(onClick={inline=null},enabled=!s.writing){Text("キャンセル")}})}
 }

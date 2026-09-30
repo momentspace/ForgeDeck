@@ -61,7 +61,16 @@ jobs:
           disable-animations: true
           script: |
             gradle --no-daemon :app:connectedDebugAndroidTest
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb logcat -c
+            adb shell am start -W -n dev.forgedeck.app/.MainActivity
+            adb shell uiautomator dump /sdcard/forgedeck-launch.xml
+            adb pull /sdcard/forgedeck-launch.xml app/build/forgedeck-launch.xml
+            python -c 'from pathlib import Path; s=Path("app/build/forgedeck-launch.xml").read_text(); assert "ForgeDeck" in s and "GitHubトークン" in s, "MainActivity login did not render"'
+            adb shell screencap -p /sdcard/Pictures/ForgeDeckScreenshots/00-actual-launch.png
             adb pull /sdcard/Pictures/ForgeDeckScreenshots app/build/native-screenshots
+            adb logcat -d -s AndroidRuntime > app/build/main-activity-log.txt
+            if rg 'FATAL EXCEPTION' app/build/main-activity-log.txt; then exit 1; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -75,3 +84,5 @@ jobs:
             app/build/reports/lint-results-debug.html
             app/build/reports/tests/testDebugUnitTest/
             app/build/reports/androidTests/connected/
+            app/build/forgedeck-launch.xml
+            app/build/main-activity-log.txt
