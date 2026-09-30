@@ -1,0 +1,88 @@
+name: Android
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Use runner Android SDK
+        run: test -d "$ANDROID_HOME/platforms/android-35"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Prepare reproducible developer sources
+        run: |
+          curl --fail --location --max-time 30 https://services.gradle.org/distributions/gradle-8.11.1-bin.zip.sha256 --output "$RUNNER_TEMP/gradle.sha256"
+          gradle --no-daemon formatKotlin wrapper --gradle-version 8.11.1 --gradle-distribution-sha256-sum "$(cat "$RUNNER_TEMP/gradle.sha256")"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ForgeDeck-developer-sources
+          path: |
+            app/src
+            gradle/wrapper
+            gradlew
+            gradlew.bat
+      - name: Build and verify
+        run: gradle --no-daemon :app:lintDebug :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ForgeDeck-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ForgeDeck-release-unsigned
+          path: app/build/outputs/apk/release/*.apk
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          disable-animations: true
+          script: |
+            gradle --no-daemon :app:connectedDebugAndroidTest
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb logcat -c
+            adb shell am start -W -n dev.forgedeck.app/.MainActivity
+            adb shell uiautomator dump /sdcard/forgedeck-launch.xml
+            adb pull /sdcard/forgedeck-launch.xml app/build/forgedeck-launch.xml
+            python -c 'from pathlib import Path; s=Path("app/build/forgedeck-launch.xml").read_text(); assert "ForgeDeck" in s and "GitHubトークン" in s, "MainActivity login did not render"'
+            adb shell screencap -p /sdcard/Pictures/ForgeDeckScreenshots/00-actual-launch.png
+            adb pull /sdcard/Pictures/ForgeDeckScreenshots app/build/native-screenshots
+            adb logcat -d -s AndroidRuntime > app/build/main-activity-log.txt
+            if rg 'FATAL EXCEPTION' app/build/main-activity-log.txt; then exit 1; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ForgeDeck-native-screenshots
+          path: app/build/native-screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Android-check-reports
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/reports/androidTests/connected/
+            app/build/forgedeck-launch.xml
+            app/build/main-activity-log.txt
