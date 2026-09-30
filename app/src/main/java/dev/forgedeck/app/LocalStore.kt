@@ -48,11 +48,11 @@ class LocalStore(context: Context) {
     fun toggle(name: String, value: String) { val values = set(name).toMutableSet(); if(!values.add(value)) values.remove(value); prefs.edit().putStringSet("$login|$name", values).commit() }
     fun recent(): List<String> = prefs.getString("$login|recent", "")!!.split('|').filter { it.isNotBlank() }
     fun visit(repo: String) { prefs.edit().putString("$login|recent", (listOf(repo) + recent().filter { it != repo }).take(10).joinToString("|")).commit() }
-    fun draft(editor: Editor) { prefs.edit().putString("$login|draft:${editor.key}", JSONObject().put("sha",editor.originalSha).put("text",editor.text).put("path",editor.newPath).put("title",editor.title).put("target",editor.target).toString()).commit() }
-    fun restore(editor: Editor): Editor = prefs.getString("$login|draft:${editor.key}",null)?.let { runCatching { val o=JSONObject(it); if(o.str("sha")!=editor.originalSha) editor else editor.copy(text=o.str("text"),newPath=o.str("path"),title=o.str("title"),target=o.str("target")) }.getOrNull() } ?: editor
+    fun draft(editor: Editor) { prefs.edit().putString("$login|draft:${editor.key}", JSONObject().put("sha",editor.originalSha).put("original",editor.original).put("text",editor.text).put("path",editor.newPath).put("title",editor.title).put("target",editor.target).toString()).commit() }
+    fun restore(editor: Editor): Editor = prefs.getString("$login|draft:${editor.key}",null)?.let { runCatching { val o=JSONObject(it); editor.copy(originalSha=o.str("sha"),original=if(o.has("original"))o.str("original") else editor.original,text=o.str("text"),newPath=o.str("path"),title=o.str("title"),target=o.str("target")) }.getOrNull() } ?: editor
     fun discard(editor: Editor) { prefs.edit().remove("$login|draft:${editor.key}").commit() }
-    fun pending(value: PendingPr?) { if(value==null) prefs.edit().remove("$login|pending").commit() else prefs.edit().putString("$login|pending",JSONObject().put("repo",value.repo).put("base",value.base).put("head",value.head).put("title",value.title).toString()).commit() }
-    fun pending(): PendingPr? = prefs.getString("$login|pending",null)?.let { runCatching { val o=JSONObject(it);PendingPr(o.getString("repo"),o.getString("base"),o.getString("head"),o.getString("title")) }.getOrNull() }
+    fun pending(value: PendingPr?) { if(value==null) prefs.edit().remove("$login|pending").commit() else prefs.edit().putString("$login|pending",JSONObject().put("repo",value.repo).put("base",value.base).put("head",value.head).put("title",value.title).put("commitSha",value.commitSha).put("body",value.body).toString()).commit() }
+    fun pending(): PendingPr? = prefs.getString("$login|pending",null)?.let { runCatching { val o=JSONObject(it);PendingPr(o.getString("repo"),o.getString("base"),o.getString("head"),o.getString("title"),o.str("commitSha"),o.str("body")) }.getOrNull() }
     var theme: String
         get() = prefs.getString("theme","system") ?: "system"
         set(value) { prefs.edit().putString("theme",value).commit() }

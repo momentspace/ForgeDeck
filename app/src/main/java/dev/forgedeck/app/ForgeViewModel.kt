@@ -40,10 +40,11 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
     private var authJob: Job? = null
     private var operationId = 0
     private val history = mutableListOf<UiState>()
+    private var pendingLink: LinkTarget? = null
     init { if(credential.isNotEmpty())refresh() }
     private fun run(write:Boolean=false,block:suspend ()->Unit) {
         if(mutable.value.writing)return
-        if(!write)readJob?.cancel()
+        readJob?.cancel()
         val currentId=++operationId
         val job=viewModelScope.launch {
             mutable.update { it.copy(busy=true,writing=write,error="",notice="",cacheTime=null) }
@@ -64,7 +65,8 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
             if(store.login.isNotBlank() && store.login!=user)store.logout()
             store.saveToken(token.trim(),user);credential=token.trim();history.clear()
             mutable.value=UiState(login=user,theme=store.theme,pins=store.pins(),recent=store.recent(),waiting=store.waiting(),pending=store.pending(),busy=true,writing=true)
-            loadRepos(1)
+            val target=pendingLink;pendingLink=null
+            if(target==null)loadRepos(1) else if(target.number==0){val repo=repository.repo(target.repo);go(Route(Page.FILES,target.repo,repo.defaultBranch));mutable.update{it.copy(selectedRepo=repo,repoKind="files")};loadFiles()} else showSaved(Item(target.repo,target.number,"読込中","","",target.isPr,"open",""),"接続しました")
         }
     }
     fun startDeviceFlow(clientId:String) {
@@ -86,12 +88,12 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
                 while(System.currentTimeMillis()<until) {
                     delay(interval*1000)
                     val result=post("login/oauth/access_token",JSONObject().put("client_id",clientId.trim()).put("device_code",codes.getString("device_code")).put("grant_type","urn:ietf:params:oauth:grant-type:device_code"))
-                    if(result.has("access_token")){mutable.update { it.copy(deviceCode="",deviceUrl="") };login(result.getString("access_token"));return@launch}
+                    if(result.has("access_token")){mutable.update { it.copy(deviceCode="",deviceUrl="") };authJob=null;login(result.getString("access_token"));return@launch}
                     when(result.str("error")){"authorization_pending"->Unit;"slow_down"->interval+=5;else->error("認証が終了しました。${result.str("error")}")}
                 }
                 error("認証コードの有効期限が切れました")
             }catch(e:CancellationException){throw e}catch(e:Exception){mutable.update { it.copy(error=e.message.orEmpty(),deviceCode="",deviceUrl="") }}
-            finally {mutable.update { it.copy(busy=false) }}
+            finally {if(authJob!=null)mutable.update { it.copy(busy=false) }}
         }
     }
     fun cancelDeviceFlow(){authJob?.cancel();mutable.update { it.copy(deviceCode="",deviceUrl="",busy=false) }}
@@ -103,7 +105,7 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
     fun wait(item:Item){store.toggle("waiting",item.key);mutable.update { it.copy(waiting=store.waiting()) }}
     fun home(page:Page){if(mutable.value.writing)return;readJob?.cancel();operationId++;history.clear();mutable.update { it.copy(route=Route(page),tab=page,page=1,items=emptyList(),detail=null,editor=null,notice="",error="") };refresh()}
     fun back(){if(mutable.value.writing)return;readJob?.cancel();operationId++;mutable.value=if(history.isNotEmpty())history.removeAt(history.lastIndex).copy(busy=false,writing=false,editor=null) else mutable.value.copy(route=Route(mutable.value.tab),editor=null,busy=false);}
-    private fun go(route:Route){history.add(mutable.value.copy(busy=false,writing=false));mutable.update { it.copy(route=route,page=1,more=false,detail=null,editor=null,notice="",error="") }}
+    private fun go(route:Route){history.add(mutable.value.copy(busy=false,writing=false));mutable.update { it.copy(route=route,page=1,more=false,detail=null,document=null,entries=emptyList(),editor=null,notice="",error="") }}
     fun openRepo(full:String){if(!validRepo(full))return;run {
         val repo=repository.repo(full);store.visit(full);go(Route(Page.FILES,full,repo.defaultBranch));mutable.update { it.copy(selectedRepo=repo,repoKind="files",recent=store.recent()) };loadFiles()
     }}
@@ -116,8 +118,8 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
     fun searchRepo(query:String){mutable.update { it.copy(repoQuery=query,page=1) };run { loadRepos(1) }}
     private suspend fun loadRepos(page:Int){val query=mutable.value.repoQuery;val result=if(query.isBlank())repository.repositories(page) else repository.searchRepos(query,page);mutable.update { it.copy(repos=((if(page>1)it.repos else emptyList())+result.values).distinctBy { r->r.fullName },page=page,more=result.more,notice=result.note) }}
     private suspend fun loadFiles(){val s=mutable.value;val r=s.route;if(s.repoKind=="files"){val result=repository.entries(r.repo,r.branch,r.path);mutable.update { it.copy(entries=result.values,notice=result.note,more=false) }}else{val result=repository.items(r.repo,s.repoKind,s.page,s.itemState);mutable.update { it.copy(items=((if(s.page>1)it.items else emptyList())+result.values).distinctBy { item->item.key },more=result.more,notice=result.note) }}}
-    fun openItem(item:Item){go(Route(Page.ITEM,item.repo,number=item.number));mutable.update { it.copy(detail=Detail(item)) };run { mutable.update { it.copy(detail=repository.detail(item)) } }}
-    fun deepLink(value:String){val target=githubTarget(value);if(target==null){mutable.update { it.copy(error="このリンクはアプリ内では開けません。repo、Issue、PRのリンクに対応しています。") };return};if(mutable.value.login.isBlank()){mutable.update { it.copy(notice="接続後にリンクをもう一度開いてください") };return};if(target.number==0)openRepo(target.repo)else openItem(Item(target.repo,target.number,"読込中","","",target.isPr,"open",""))}
+    fun openItem(item:Item){if(mutable.value.writing)return;go(Route(Page.ITEM,item.repo,number=item.number));mutable.update { it.copy(detail=Detail(item)) };run { val detail=repository.detail(item);mutable.update { it.copy(detail=detail) } }}
+    fun deepLink(value:String){val target=githubTarget(value);if(target==null){mutable.update { it.copy(error="このリンクはアプリ内では開けません。repo、Issue、PRのリンクに対応しています。") };return};if(mutable.value.login.isBlank()){pendingLink=target;mutable.update { it.copy(notice="接続後にリンクを開きます") };return};if(target.number==0)openRepo(target.repo)else openItem(Item(target.repo,target.number,"読込中","","",target.isPr,"open",""))}
     private suspend fun loadDeck(page:Int){
         val user=mutable.value.login
         val queries=listOf("is:issue is:open assignee:$user","is:pr is:open author:$user","is:pr is:open review-requested:$user")
@@ -143,22 +145,36 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
         if(operation!="new" && (d?.text==null))return
         val path=if(operation=="new") (s.route.path.takeIf { s.route.page==Page.FILES && it.isNotEmpty() }?.plus('/') ?: "")+uploadedName.ifEmpty { "new-file.md" } else d!!.path
         val fresh=Editor(s.route.repo,s.route.branch,if(operation=="new")"" else path,path,d?.sha.takeIf { operation!="new" }.orEmpty(),d?.text.takeIf { operation!="new" }.orEmpty(),if(operation=="delete")"" else if(operation=="new")uploadedText else d!!.text!!,operation,repository.newBranch(),"${mapOf("edit" to "更新","new" to "追加","rename" to "移動","delete" to "削除")[operation]}: $path")
-        go(s.route.copy(page=Page.EDITOR));mutable.update { it.copy(editor=store.restore(fresh)) }
+        go(s.route.copy(page=Page.EDITOR));val restored=store.restore(fresh);mutable.update { it.copy(editor=restored,notice=if(restored.originalSha!=fresh.originalSha)"下書きを復元しました。元ファイルが更新されているため、最新との差分を確認してください。"else"") }
     }
     fun editor(change:(Editor)->Editor){val old=mutable.value.editor ?: return;val new=change(old);store.draft(new);mutable.update { it.copy(editor=new) }}
     fun discardEditor(){mutable.value.editor?.let(store::discard);back()}
-    fun rebaseEditor(){run { val e=mutable.value.editor ?: return@run;val latest=repository.document(e.repo,e.base,e.oldPath);check(latest.text!=null){"最新ファイルを編集できません"};val next=e.copy(original=latest.text!!,originalSha=latest.sha);store.draft(next);mutable.update { it.copy(editor=next,notice="最新の内容と下書きの差分を確認してください。まだ保存していません。") } }}
-    fun saveEditor(){val e=mutable.value.editor ?: return;run(true){val p=repository.propose(e);store.pending(p);store.discard(e);mutable.update { it.copy(pending=p,editor=null,route=Route(Page.FILES,p.repo,p.head,""),repoKind="files",notice="ブランチを作成しました。PR作成を確認しています。") };val item=repository.createPr(p);store.pending(null);mutable.update { it.copy(pending=null,route=Route(Page.ITEM,item.repo,number=item.number),detail=repository.detail(item),notice="PRを作成しました") }}}
-    fun retryPending(){val p=mutable.value.pending ?: return;run(true){val item=repository.createPr(p);store.pending(null);mutable.update { it.copy(pending=null,route=Route(Page.ITEM,item.repo,number=item.number),detail=repository.detail(item),notice="PRを確認しました") }}}
-    fun issue(title:String,body:String,labels:List<String>,assignees:List<String>,number:Int=0){val repo=mutable.value.route.repo;run(true){val item=repository.issue(repo,title,body,number,labels,assignees);mutable.update { it.copy(route=Route(Page.ITEM,repo,number=item.number),detail=repository.detail(item),notice="Issueを保存しました") }}}
-    fun comment(body:String){val item=mutable.value.detail?.item ?: return;run(true){repository.comment(item,body);mutable.update { it.copy(detail=repository.detail(item),notice="コメントを追加しました") }}}
-    fun state(value:String){val item=mutable.value.detail?.item ?: return;run(true){repository.itemState(item,value);mutable.update { it.copy(detail=repository.detail(item),notice="状態を更新しました") }}}
-    fun review(event:String,body:String){val detail=mutable.value.detail ?: return;run(true){repository.review(detail,event,body,mutable.value.login);mutable.update { it.copy(detail=repository.detail(detail.item),notice="レビューを送信しました") }}}
-    fun inline(path:String,line:Int,side:String,body:String){val detail=mutable.value.detail ?: return;run(true){repository.inlineComment(detail,path,line,side,body);mutable.update { it.copy(detail=repository.detail(detail.item),notice="差分にコメントしました") }}}
-    fun merge(method:String){val detail=mutable.value.detail ?: return;run(true){repository.merge(detail,method);mutable.update { it.copy(detail=repository.detail(detail.item),notice="マージが完了しました") }}}
+    fun rebaseEditor(){run { val e=mutable.value.editor ?: return@run;val latest=repository.document(e.repo,e.base,e.oldPath,cached=false);check(latest.text!=null){"最新ファイルを編集できません"};val next=e.copy(original=latest.text!!,originalSha=latest.sha);store.draft(next);mutable.update { it.copy(editor=next,notice="最新の内容と下書きの差分を確認してください。まだ保存していません。") } }}
+    private suspend fun showSaved(item:Item,message:String) {
+        mutable.update { it.copy(route=Route(Page.ITEM,item.repo,number=item.number),detail=Detail(item),notice=message,editor=null) }
+        try { val detail=repository.detail(item);mutable.update { it.copy(detail=detail,deckDetails=it.deckDetails+(item.key to detail)) } }
+        catch(e:CancellationException){throw e}
+        catch(e:Exception){ if(e is ApiError && e.code==401)throw e;mutable.update { it.copy(notice="$message。詳細の再取得に失敗しました。更新で確認できます。") } }
+    }
+    fun saveEditor(){val e=mutable.value.editor ?: return;run(true){
+        val p=repository.propose(e){prepared->store.pending(prepared);mutable.update { it.copy(pending=prepared) }}
+        store.discard(e);mutable.update { it.copy(editor=null,route=Route(Page.FILES,p.repo,p.head,""),repoKind="files",notice="ブランチを作成しました。PR作成を確認しています。") }
+        val item=repository.createPr(p);store.pending(null);mutable.update { it.copy(pending=null) };showSaved(item,"PRを作成しました")
+    }}
+    fun retryPending(){val p=mutable.value.pending ?: return;run(true){val item=repository.createPr(p);store.pending(null);mutable.update { it.copy(pending=null) };showSaved(item,"PRを確認しました")}}
+    fun issue(title:String,body:String,labels:List<String>,assignees:List<String>,number:Int=0){val repo=mutable.value.route.repo;run(true){val item=repository.issue(repo,title,body,number,labels,assignees);showSaved(item,"Issueを保存しました")}}
+    fun comment(body:String){val item=mutable.value.detail?.item ?: return;run(true){repository.comment(item,body);showSaved(item,"コメントを追加しました")}}
+    fun state(value:String){val item=mutable.value.detail?.item ?: return;run(true){repository.itemState(item,value);showSaved(item.copy(state=value),"状態を更新しました")}}
+    fun review(event:String,body:String){val detail=mutable.value.detail ?: return;run(true){repository.review(detail,event,body,mutable.value.login);showSaved(detail.item,"レビューを送信しました")}}
+    fun inline(path:String,line:Int,side:String,body:String){val detail=mutable.value.detail ?: return;run(true){repository.inlineComment(detail,path,line,side,body);showSaved(detail.item,"差分にコメントしました")}}
+    fun merge(method:String){val detail=mutable.value.detail ?: return;run(true){repository.merge(detail,method);showSaved(detail.item.copy(state="closed"),"マージが完了しました")}}
     fun read(id:String){run(true){repository.markRead(id);mutable.update { it.copy(notifications=it.notifications.map { n->if(n.id==id)n.copy(unread=false)else n }) }}}
     
-    fun newPr(base:String,head:String,title:String,body:String){val repo=mutable.value.route.repo;run(true){require(validBranch(base)&&validBranch(head)&&base!=head&&title.isNotBlank());val o=repository.api.post("repos/$repo/pulls",JSONObject().put("base",base).put("head",head).put("title",title).put("body",body));val item=parseItem(o,repo);val detail=repository.detail(item);mutable.update { it.copy(route=Route(Page.ITEM,repo,number=item.number),detail=detail,notice="PRを作成しました") }}}
+    fun newPr(base:String,head:String,title:String,body:String){val repo=mutable.value.route.repo;run(true){
+        require(validBranch(base)&&validBranch(head)&&base!=head&&title.isNotBlank())
+        val p=PendingPr(repo,base,head,title,body=body);store.pending(p);mutable.update{it.copy(pending=p)}
+        val item=repository.createPr(p);store.pending(null);mutable.update{it.copy(pending=null)};showSaved(item,"PRを作成しました")
+    }}
     fun notification(n:Notification){run(n.unread){if(n.unread)repository.markRead(n.id);val item=Item(n.repo,n.number,"読込中","","",n.kind=="PullRequest","open","");val detail=repository.detail(item);go(Route(Page.ITEM,n.repo,number=n.number));mutable.update { it.copy(detail=detail,notifications=it.notifications.map {old->if(old.id==n.id)old.copy(unread=false)else old }) }}}
 
     fun allRead(){run(true){repository.markAllRead();mutable.update { it.copy(notifications=it.notifications.map { n->n.copy(unread=false) }) }}}

@@ -28,8 +28,8 @@ class GitHubRepository(val api: GitHubApi) {
         val list=api.arr("repos/$full/contents/$path",mapOf("ref" to branch),true).objects().map { Entry(it.str("name"),it.str("path"),it.str("type"),it.str("sha"),it.optLong("size")) }
         return PageResult(list,list.size>=1000,if(list.size>=1000)"GitHub Contents APIの一覧上限に達しています。GitHubでも確認してください。" else "")
     }
-    suspend fun document(full:String,branch:String,path:String):Document {
-        val obj=api.obj("repos/$full/contents/$path",mapOf("ref" to branch),true)
+    suspend fun document(full:String,branch:String,path:String,cached:Boolean=true):Document {
+        val obj=api.obj("repos/$full/contents/$path",mapOf("ref" to branch),cached)
         if(obj.str("type")!="file")return Document(path,obj.str("sha"),null,obj.optLong("size"),"${obj.str("type")} はアプリでは編集できません。GitHubで確認してください。")
         if(obj.optLong("size")>1_000_000 || obj.str("encoding")!="base64")return Document(path,obj.str("sha"),null,obj.optLong("size"),"大きなファイル、または未対応形式です。GitHubからダウンロードできます。")
         val bytes=Base64.getMimeDecoder().decode(obj.str("content"))
@@ -81,7 +81,7 @@ class GitHubRepository(val api: GitHubApi) {
             if(result.has("errors"))throw ApiError(422,"PRルールを確認できませんでした")
             val pr=result.getJSONObject("data").getJSONObject("repository").getJSONObject("pullRequest")
             if(pr.getString("headRefOid")!=sha)throw ApiError(409,"PRのコミットが更新されました")
-            mergeState=pr.str("mergeStateStatus");decision=pr.str("reviewDecision").ifEmpty { "NOT_REQUIRED" }
+            mergeState=pr.str("mergeStateStatus");decision=pr.str("reviewDecision").ifEmpty { "UNKNOWN" }
             val refs=pr.getJSONObject("closingIssuesReferences")
             if(refs.getJSONObject("pageInfo").optBoolean("hasNextPage"))partial.add("関連Issueは最初の50件です")
             refs.getJSONArray("nodes").objects().forEach { o -> related.add(Item(o.getJSONObject("repository").getString("nameWithOwner"),o.getInt("number"),o.str("title"),o.str("body"),o.optJSONObject("author")?.str("login") ?: "",false,o.str("state").lowercase(),o.str("updatedAt"),url=o.str("url"))) }
@@ -116,7 +116,7 @@ class GitHubRepository(val api: GitHubApi) {
         val response=JSONObject(api.request("PUT","repos/${detail.item.repo}/pulls/${detail.item.number}/merge",JSONObject().put("sha",detail.headSha).put("merge_method",method)))
         check(response.optBoolean("merged")) { "マージは完了していません。最新状態を確認してください" }
     }
-    suspend fun propose(editor:Editor):PendingPr {
+    suspend fun propose(editor:Editor,onPrepared:(PendingPr)->Unit = {}):PendingPr {
         require(validRepo(editor.repo) && validBranch(editor.base) && validBranch(editor.target) && editor.target!=editor.base && editor.title.isNotBlank()) { "保存先とタイトルを確認してください" }
         require(editor.operation=="delete" || validPath(editor.newPath)) { "相対パスを入力してください" }
         check(repo(editor.repo,false).canPush) { "このrepoへの書込み権限がありません" }
@@ -138,17 +138,27 @@ class GitHubRepository(val api: GitHubApi) {
             try { api.obj("repos/${editor.repo}/contents/${editor.newPath}",mapOf("ref" to head));error("保存先に既存ファイルがあります") } catch(e:ApiError) { if(e.code!=404)throw e }
         }
         val entries=JSONArray()
-        if(editor.operation in setOf("delete","rename"))entries.put(JSONObject().put("path",editor.oldPath).put("mode",mode).put("type","blob").put("sha",JSONObject.NULL))
+        if(editor.operation=="delete" || (editor.oldPath.isNotBlank() && editor.newPath!=editor.oldPath))entries.put(JSONObject().put("path",editor.oldPath).put("mode",mode).put("type","blob").put("sha",JSONObject.NULL))
         if(editor.operation!="delete")entries.put(JSONObject().put("path",editor.newPath).put("mode",mode).put("type","blob").put("content",editor.text))
         val tree=api.post("repos/${editor.repo}/git/trees",JSONObject().put("base_tree",baseTree).put("tree",entries)).getString("sha")
         val commit=api.post("repos/${editor.repo}/git/commits",JSONObject().put("message",editor.title).put("tree",tree).put("parents",JSONArray().put(head))).getString("sha")
-        api.post("repos/${editor.repo}/git/refs",JSONObject().put("ref","refs/heads/${editor.target}").put("sha",commit))
-        return PendingPr(editor.repo,editor.base,editor.target,editor.title)
+        val pending=PendingPr(editor.repo,editor.base,editor.target,editor.title,commit)
+        onPrepared(pending)
+        ensureBranch(pending)
+        return pending
+    }
+    private suspend fun ensureBranch(p:PendingPr) {
+        if(p.commitSha.isBlank())return
+        val current=try { api.obj("repos/${p.repo}/git/ref/heads/${p.head}").getJSONObject("object").getString("sha") } catch(e:ApiError) { if(e.code!=404)throw e;null }
+        if(current==null) api.post("repos/${p.repo}/git/refs",JSONObject().put("ref","refs/heads/${p.head}").put("sha",p.commitSha))
+        else check(current==p.commitSha) { "保存したブランチが更新されています。GitHubで状態を確認してください" }
     }
     suspend fun createPr(p:PendingPr):Item {
+        require(validRepo(p.repo) && validBranch(p.base) && validBranch(p.head) && p.base!=p.head && p.title.isNotBlank())
+        ensureBranch(p)
         val existing=api.arr("repos/${p.repo}/pulls",mapOf("head" to "${p.repo.substringBefore('/')}:${p.head}","base" to p.base,"state" to "all"))
         if(existing.length()>0)return parseItem(existing.getJSONObject(0),p.repo)
-        return parseItem(api.post("repos/${p.repo}/pulls",JSONObject().put("title",p.title).put("head",p.head).put("base",p.base).put("body","ForgeDeckから提案したファイルの変更です。")),p.repo)
+        return parseItem(api.post("repos/${p.repo}/pulls",JSONObject().put("title",p.title).put("head",p.head).put("base",p.base).put("body",p.body)),p.repo)
     }
     suspend fun notifications(page:Int=1):PageResult<Notification> {
         val list=api.arr("notifications",mapOf("all" to "true","per_page" to "50","page" to "$page"),true).objects().map { o ->

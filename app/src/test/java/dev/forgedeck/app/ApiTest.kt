@@ -36,4 +36,42 @@ class ApiTest {
         val detail=Detail(Item("owner/repo",2,"Title","","me",true,"open",""))
         try{repo.review(detail,"APPROVE","","me");fail("Own approval must stop before network")}catch(e:IllegalArgumentException){assertTrue(e.message!!.contains("自分"))}
     }
+
+    @Test fun moveCreatesOneCommitAndNeverChangesBaseRef()=runBlocking {
+        val server=MockWebServer();server.start()
+        try {
+            listOf(
+                "{\"full_name\":\"owner/repo\",\"permissions\":{\"push\":true}}",
+                "{\"object\":{\"sha\":\"base-head\"}}",
+                "{\"tree\":{\"sha\":\"base-tree\"}}",
+                "{\"sha\":\"file-sha\"}",
+                "{\"tree\":[{\"path\":\"run.sh\",\"mode\":\"100755\",\"sha\":\"file-sha\"}]}"
+            ).forEach{server.enqueue(MockResponse().setBody(it))}
+            server.enqueue(MockResponse().setResponseCode(404))
+            server.enqueue(MockResponse().setBody("{\"sha\":\"new-tree\"}"))
+            server.enqueue(MockResponse().setBody("{\"sha\":\"new-commit\"}"))
+            server.enqueue(MockResponse().setResponseCode(404))
+            server.enqueue(MockResponse().setBody("{\"ref\":\"refs/heads/forgedeck/test\"}"))
+            val repository=GitHubRepository(GitHubApi({"test"},base=server.url("/")))
+            val e=Editor("owner/repo","main","run.sh","tools/run.sh","file-sha","old","new",operation="rename",target="forgedeck/test",title="Move")
+            var prepared:PendingPr?=null
+            val pending=repository.propose(e){prepared=it}
+            assertEquals("new-commit",prepared!!.commitSha);assertEquals(pending,prepared)
+            val requests=(1..10).map{server.takeRequest()}
+            assertTrue(requests.none{it.method=="PATCH"||it.method=="PUT"})
+            val tree=JSONObject(requests[6].body.readUtf8());assertEquals("base-tree",tree.getString("base_tree"))
+            val entries=tree.getJSONArray("tree");assertEquals(2,entries.length());assertTrue(entries.getJSONObject(0).isNull("sha"));assertEquals("100755",entries.getJSONObject(1).getString("mode"))
+            val ref=JSONObject(requests.last().body.readUtf8());assertEquals("refs/heads/forgedeck/test",ref.getString("ref"));assertEquals("new-commit",ref.getString("sha"))
+        } finally {server.shutdown()}
+    }
+    @Test fun pendingPrFindsExistingPrBeforePostingAgain()=runBlocking {
+        val server=MockWebServer();server.start()
+        try {
+            server.enqueue(MockResponse().setBody("{\"object\":{\"sha\":\"saved-commit\"}}"))
+            server.enqueue(MockResponse().setBody("[{\"number\":9,\"title\":\"Saved\",\"state\":\"open\",\"head\":{}}]"))
+            val repository=GitHubRepository(GitHubApi({"test"},base=server.url("/")))
+            assertEquals(9,repository.createPr(PendingPr("owner/repo","main","forgedeck/test","Saved","saved-commit")).number)
+            assertEquals(2,server.requestCount);repeat(2){assertEquals("GET",server.takeRequest().method)}
+        } finally {server.shutdown()}
+    }
 }

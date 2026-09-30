@@ -103,7 +103,7 @@ class MainActivity:ComponentActivity(){
             if(s.error.isNotBlank())Message(s.error,true,vm::clearError)
             if(s.notice.isNotBlank())Message(s.notice,false,vm::clearError)
             s.cacheTime?.let{Text("キャッシュ · ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))} · 書込みは接続時のみ",Modifier.padding(12.dp),style=MaterialTheme.typography.bodySmall)}
-            s.pending?.let{p->Card(Modifier.padding(12.dp)){Column(Modifier.padding(12.dp)){Text("${p.repo} · ${p.head} は保存済み");Text("PRは未完了です。重複を確認してから作成します。");Button(onClick=vm::retryPending,enabled=!s.busy){Text("PRを確認・作成")}}}}
+            s.pending?.let{p->Card(Modifier.padding(12.dp)){Column(Modifier.padding(12.dp)){Text("${p.repo} · ${p.head}");Text("ブランチ・PRの保存結果を確認します。重複を調べてから続行します。");Button(onClick=vm::retryPending,enabled=!s.busy){Text("PRを確認・作成")}}}}
             Box(Modifier.weight(1f).fillMaxWidth()){
                 if(s.login.isEmpty())LoginScreen(s,vm,::web)else holder.SaveableStateProvider(s.route.toString()){
                     when(s.route.page){
@@ -134,8 +134,8 @@ class MainActivity:ComponentActivity(){
     var token by remember{mutableStateOf("")};var client by rememberSaveable{mutableStateOf("")}
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
         Text("いつものリポジトリへ。",style=MaterialTheme.typography.headlineMedium);Text("GitHub.comの本人のアカウントを接続します。トークンはパスワードと同じように扱ってください。")
-        OutlinedTextField(token,{token=it},label={Text("GitHubトークン")},visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),singleLine=true,modifier=Modifier.fillMaxWidth(),enabled=!s.busy)
-        Button(onClick={vm.login(token);token=""},enabled=token.isNotBlank()&&!s.busy,modifier=Modifier.fillMaxWidth()){Text("アカウントを確認して接続")}
+        OutlinedTextField(token,{token=it},label={Text("GitHubトークン")},visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),singleLine=true,modifier=Modifier.fillMaxWidth(),enabled=!s.busy&&s.deviceCode.isEmpty())
+        Button(onClick={vm.login(token);token=""},enabled=token.isNotBlank()&&!s.busy&&s.deviceCode.isEmpty(),modifier=Modifier.fillMaxWidth()){Text("アカウントを確認して接続")}
         TextButton(onClick={web("https://github.com/settings/personal-access-tokens/new")}){Text("トークンを発行する")}
         Text("選んだrepoにContents・Issues・Pull requestsの読取り／書込み、Checks・Commit statuses・Metadataの読取りを付けます。通知・Organization・ルールの取得は認証方式で制限されます。使えない機能は理由を表示します。",style=MaterialTheme.typography.bodySmall)
         HorizontalDivider();Text("登録済みGitHub Appで接続",style=MaterialTheme.typography.titleMedium)
@@ -164,10 +164,10 @@ class MainActivity:ComponentActivity(){
 @Composable fun FilesScreen(s:UiState,vm:ForgeViewModel,branches:()->Unit,form:(String)->Unit,upload:()->Unit){
     var search by rememberSaveable{mutableStateOf("")}
     LazyColumn(contentPadding=PaddingValues(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-        item{FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){OutlinedButton(onClick=branches,enabled=!s.busy){Text(s.route.branch)};if(s.selectedRepo?.canPush==true){TextButton(onClick={vm.beginEdit("new")},enabled=!s.busy){Text("新規ファイル")};TextButton(onClick=upload,enabled=!s.busy){Text("アップロード")}}}
+        item{FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){OutlinedButton(onClick=branches,enabled=!s.busy){Text(s.route.branch)};if(s.selectedRepo?.canPush==true){TextButton(onClick={vm.beginEdit("new")},enabled=!s.busy){Text("新規ファイル")};TextButton(onClick=upload,enabled=!s.busy){Text("アップロード")}}}}
         item{FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){listOf("files" to "ファイル","issue" to "Issue","pr" to "PR").forEach{(key,label)->FilterChip(selected=s.repoKind==key,onClick={vm.repoKind(key)},label={Text(label)},enabled=!s.busy)}}}
         if(s.repoKind=="files"){
-            item{FlowRow{TextButton(onClick={vm.directory("")}){Text("root")};s.route.path.split('/').filter{it.isNotEmpty()}.forEachIndexed{i,p->TextButton(onClick={vm.directory(s.route.path.split('/').take(i+1).joinToString("/"))}){Text("/ $p")}}}
+            item{FlowRow{TextButton(onClick={vm.directory("")}){Text("root")};s.route.path.split('/').filter{it.isNotEmpty()}.forEachIndexed{i,p->TextButton(onClick={vm.directory(s.route.path.split('/').take(i+1).joinToString("/"))}){Text("/ $p")}}}}
             items(s.entries.sortedWith(compareBy<Entry>{it.type!="dir"}.thenBy{it.name}),key={it.path}){entry->Card(onClick={if(entry.type=="dir")vm.directory(entry.path)else vm.openFile(entry.path)},modifier=Modifier.fillMaxWidth()){Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically){Icon(if(entry.type=="dir")Icons.Default.Folder else Icons.Default.Description,null,tint=MaterialTheme.colorScheme.primary);Text(entry.name,Modifier.weight(1f).padding(start=12.dp));if(entry.type!="dir")Text("${entry.size} B",style=MaterialTheme.typography.bodySmall)}}}
             if(s.entries.isEmpty()&&!s.busy)item{Empty("ファイルがないか、空のリポジトリです。")}
         }else{
@@ -207,13 +207,13 @@ class MainActivity:ComponentActivity(){
 }
 @Composable fun DiffRow(line:DiffLine,onLine:((Int,String)->Unit)?=null){val color=when(line.kind){'+'->MaterialTheme.colorScheme.primaryContainer;'-'->MaterialTheme.colorScheme.errorContainer;else->MaterialTheme.colorScheme.surface};Row(Modifier.fillMaxWidth().background(color).padding(4.dp),verticalAlignment=Alignment.Top){if(onLine!=null&&(line.left!=null||line.right!=null))TextButton(onClick={onLine(line.right ?: line.left!!,if(line.right!=null)"RIGHT"else"LEFT")},modifier=Modifier.widthIn(min=48.dp)){Text("${line.right ?: line.left}",fontFamily=FontFamily.Monospace)};SelectionContainer{Text("${line.kind} ${line.text.removePrefix("${line.kind}")}",fontFamily=FontFamily.Monospace,fontSize=14.sp)}}}
 @Composable fun ItemCard(item:Item,vm:ForgeViewModel,reason:String=""){Card(onClick={vm.openItem(item)},modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text("${item.repo} #${item.number}",style=MaterialTheme.typography.bodySmall);FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)){Badge(if(item.isPr)"PR"else"Issue");Badge(item.state);item.labels.take(4).forEach{Badge(it)}};Text(item.title,style=MaterialTheme.typography.titleMedium);Text(reason.ifEmpty{item.updated},style=MaterialTheme.typography.bodyMedium)}}}
-@Composable fun DeckScreen(s:UiState,vm:ForgeViewModel){var lane by rememberSaveable{mutableStateOf(Lane.MINE)};var repo by rememberSaveable{mutableStateOf("")};var picker by remember{mutableStateOf(false)};val values=s.items.filter{repo.isBlank()||it.repo==repo}.map{it to assess(it,s.login,s.deckDetails[it.key],it.key in s.waiting)}
+@Composable fun DeckScreen(s:UiState,vm:ForgeViewModel){var lane by rememberSaveable{mutableStateOf(Lane.MINE)};var repo by rememberSaveable{mutableStateOf("")};var picker by remember{mutableStateOf(false)};val values=workGroups(s.items,s.deckDetails,s.login,s.waiting).filter{group->repo.isBlank()||group.members.any{it.repo==repo}}
     LazyColumn(contentPadding=PaddingValues(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         item{Text("次の一手",style=MaterialTheme.typography.headlineLarge);Text("IssueとPRを、やることから。")}
         item{Box{OutlinedButton(onClick={picker=true}){Text(repo.ifEmpty{"すべてのリポジトリ"})};DropdownMenu(picker,{picker=false}){DropdownMenuItem(text={Text("すべて")},onClick={repo="";picker=false});s.items.map{it.repo}.distinct().forEach{name->DropdownMenuItem(text={Text(name)},onClick={repo=name;picker=false})}}}}
-        item{FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){Lane.entries.forEach{l->FilterChip(selected=lane==l,onClick={lane=l},label={Text(l.label+if(l==Lane.ALL)""else" ${values.count{it.second.lane==l}}")})}}}
-        items(values.filter{lane==Lane.ALL||it.second.lane==lane},key={it.first.key}){(item,assessment)->ItemCard(item,vm,assessment.reason)}
-        if(values.none{lane==Lane.ALL||it.second.lane==lane}&&!s.busy)item{Empty("この分類で対応する項目はありません。未確認は「すべて」から開けます。")}
+        item{FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){Lane.entries.forEach{l->FilterChip(selected=lane==l,onClick={lane=l},label={Text(l.label+if(l==Lane.ALL)""else" ${values.count{it.assessment.lane==l}}")})}}}
+        items(values.filter{lane==Lane.ALL||it.assessment.lane==lane},key={it.primary.key}){group->Column(verticalArrangement=Arrangement.spacedBy(4.dp)){ItemCard(group.primary,vm,group.assessment.reason);group.members.filter{it.key!=group.primary.key}.forEach{related->TextButton(onClick={vm.openItem(related)},modifier=Modifier.fillMaxWidth()){Text("完了する作業 · ${related.repo} #${related.number} ${related.title}")}}}}
+        if(values.none{lane==Lane.ALL||it.assessment.lane==lane}&&!s.busy)item{Empty("この分類で対応する項目はありません。未確認は「すべて」から開けます。")}
         if(s.more)item{OutlinedButton(onClick=vm::more,enabled=!s.busy){Text("さらに取得")}}
     }
 }

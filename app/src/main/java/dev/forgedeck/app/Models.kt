@@ -75,4 +75,33 @@ data class Editor(val repo: String, val base: String, val oldPath: String, val n
     val key get() = "$repo|$base|$oldPath|$operation"
     val dirty get() = operation != "edit" || text != original || newPath != oldPath
 }
-data class PendingPr(val repo: String, val base: String, val head: String, val title: String)
+data class PendingPr(val repo: String, val base: String, val head: String, val title: String, val commitSha: String = "", val body: String = "ForgeDeckから提案したファイルの変更です。")
+
+/** Group only API-proven closing relations; never infer links from titles or numbers. */
+data class WorkGroup(val primary:Item,val members:List<Item>,val assessment:Assessment)
+fun workGroups(items:List<Item>,details:Map<String,Detail>,login:String,waiting:Set<String>):List<WorkGroup> {
+    val byKey=items.associateBy { it.key }
+    val parents=items.associate { it.key to it.key }.toMutableMap()
+    fun root(key:String):String { var value=key;while(parents[value]!=value)value=parents.getValue(value);return value }
+    details.values.filter { it.item.isPr && it.item.key in byKey }.forEach { d ->
+        d.related.filter { !it.isPr && it.key in byKey }.forEach { issue -> parents[root(issue.key)]=root(d.item.key) }
+    }
+    return items.groupBy { root(it.key) }.values.map { members ->
+        val assessed=members.map { it to assess(it,login,details[it.key],it.key in waiting) }
+        fun rank(pair:Pair<Item,Assessment>):Int {
+            val (item,a)=pair;val d=details[item.key]
+            return when {
+                item.isPr && d?.requested?.contains(login)==true -> 0
+                item.isPr && a.lane==Lane.MINE && d?.checks?.any { it.state in setOf("failure","error","cancelled","timed_out","action_required") }==true -> 1
+                item.isPr && a.lane==Lane.READY -> 2
+                item.isPr && a.lane==Lane.WAITING -> 3
+                item.isPr && a.lane==Lane.MINE -> 4
+                a.lane==Lane.MINE -> 5
+                a.lane==Lane.WAITING -> 6
+                else -> 7
+            }
+        }
+        val primary=assessed.minBy { rank(it) }
+        WorkGroup(primary.first,members,primary.second)
+    }
+}

@@ -36,4 +36,15 @@ class RulesTest {
     }
     @Test fun patchNumbersRespectDeletedLines(){val lines=patchLines("@@ -4,2 +4,2 @@\n-old\n+new\n context");assertEquals(4,lines[1].left);assertNull(lines[1].right);assertEquals(4,lines[2].right);assertEquals(5,lines[3].left);assertEquals(5,lines[3].right)}
     @Test fun diffPreservesUnchangedTailAndAddedText(){val lines=textDiff("one\ntwo\nend","one\nnew\nend");assertEquals(listOf(' ','-','+',' '),lines.map{it.kind});assertEquals("new",lines[2].text)}
+
+    @Test fun deckGroupsOnlyExplicitClosingRelations() {
+        val issue=Item("owner/repo",1,"Same title","","me",false,"open","",assignees=listOf("me"))
+        val pr=Item("owner/repo",2,"Same title","","me",true,"open","")
+        assertEquals(2,workGroups(listOf(issue,pr),emptyMap(),"me",emptySet()).size)
+        val detail=Detail(pr,related=listOf(issue),requested=listOf("reviewer"))
+        val groups=workGroups(listOf(issue,pr),mapOf(pr.key to detail),"me",emptySet())
+        assertEquals(1,groups.size);assertEquals(pr,groups.single().primary);assertEquals(Lane.WAITING,groups.single().assessment.lane)
+        val other=issue.copy(repo="other/repo")
+        assertEquals(2,workGroups(listOf(other,pr),mapOf(pr.key to detail),"me",emptySet()).size)
+    }
 }

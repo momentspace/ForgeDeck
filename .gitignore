@@ -4,3 +4,8 @@ node_modules/
 local.properties
 *.keystore
 *.jks
+
+.gradle/
+**/build/
+.idea/
+*.iml
