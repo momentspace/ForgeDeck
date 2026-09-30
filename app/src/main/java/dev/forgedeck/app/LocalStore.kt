@@ -11,7 +11,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import org.json.JSONObject
 
-class LocalStore(context: Context) {
+class LocalStore(context: Context) : PostJournal {
     private val vault = context.getSharedPreferences("vault", Context.MODE_PRIVATE)
     private val prefs = context.getSharedPreferences("preferences", Context.MODE_PRIVATE)
     private val cache = context.getSharedPreferences("cache", Context.MODE_PRIVATE)
@@ -218,6 +218,26 @@ class LocalStore(context: Context) {
         set(value) {
             prefs.edit().putString("theme", value).commit()
         }
+
+    override fun pendingPost(): PendingPost? = prefs.getString("$login|pending-post", null)?.let {
+        runCatching {
+            val o = JSONObject(it)
+            PendingPost(o.getString("id"), o.getString("kind"), o.getString("repo"), o.getInt("number"), o.getBoolean("isPr"), o.getString("path"), o.getString("payload"), o.getString("actor"))
+        }.getOrNull()
+    }
+
+    override fun pendingPost(value: PendingPost?) {
+        val edit = prefs.edit()
+        if (value == null) edit.remove("$login|pending-post") else edit.putString("$login|pending-post", value.json().toString())
+        check(edit.commit()) { "送信結果の照会情報を保存できませんでした。投稿を中止しました。" }
+    }
+
+    fun formDraft(key: String): String? = prefs.getString("$login|form:$key", null)
+    fun formDraft(key: String, value: String?) {
+        val edit = prefs.edit()
+        if (value == null) edit.remove("$login|form:$key") else edit.putString("$login|form:$key", value)
+        check(edit.commit()) { "入力下書きを保存できませんでした" }
+    }
 
     fun expire() {
         vault.edit().remove("token").commit()

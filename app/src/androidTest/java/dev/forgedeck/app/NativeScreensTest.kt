@@ -169,4 +169,14 @@ class NativeScreensTest {
         compose.onNodeWithText("新しいブランチ").performScrollTo().assertIsDisplayed()
         capture("05-editor-diff")
     }
+    @Test
+    fun unconfirmedPostHasExplicitRecoveryControls() {
+        val pending = PendingPost("b32476c2-7b05-49b1-8b52-cf9d65ba50fb", "comment", "sample/ForgeDeck", 1, false, "repos/sample/ForgeDeck/issues/1/comments", "{}", "sample")
+        render(UiState(login = "sample", pendingPost = pending))
+        compose.onNodeWithText("送信結果を確認").assertIsDisplayed()
+        compose.onNodeWithText("GitHubで確認").assertIsDisplayed()
+        compose.onNodeWithText("確認済み・照会を解除").assertIsDisplayed()
+        capture("06-post-recovery")
+    }
+
 }

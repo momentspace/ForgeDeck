@@ -250,7 +250,7 @@ fun parseItem(o: JSONObject, repo: String) =
         repo,
         o.getInt("number"),
         o.str("title"),
-        o.str("body"),
+        cleanPostMarkers(o.str("body")),
         o.optJSONObject("user")?.str("login") ?: "",
         o.has("pull_request") || o.has("head"),
         if (

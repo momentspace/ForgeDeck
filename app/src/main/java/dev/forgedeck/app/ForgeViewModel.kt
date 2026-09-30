@@ -49,6 +49,7 @@ data class UiState(
     val waiting: Set<String> = emptySet(),
     val editor: Editor? = null,
     val pending: PendingPr? = null,
+    val pendingPost: PendingPost? = null,
     val theme: String = "system",
     val cacheTime: Long? = null,
     val deckFetchedAt: Long = 0,
@@ -57,7 +58,7 @@ data class UiState(
     val notificationsSupported: Boolean = true,
 )
 
-class ForgeViewModel(val store: LocalStore) : ViewModel() {
+class ForgeViewModel(val store: LocalStore, apiOverride: GitHubApi? = null) : ViewModel() {
     private var credential = store.token()
 
     private fun notificationSupport(token: String) =
@@ -72,12 +73,12 @@ class ForgeViewModel(val store: LocalStore) : ViewModel() {
                 recent = store.recent(),
                 waiting = store.waiting(),
                 pending = store.pending(),
+                pendingPost = store.pendingPost(),
                 notificationsSupported = notificationSupport(credential),
             )
         )
     val ui = mutable.asStateFlow()
-    private val api =
-        GitHubApi(
+    private val api = apiOverride ?: GitHubApi(
             { credential },
             store::cachePut,
             store::cacheGet,
@@ -85,7 +86,7 @@ class ForgeViewModel(val store: LocalStore) : ViewModel() {
             validatorGet = store::validatorGet,
             validatorPut = store::validatorPut,
         )
-    private val repository = GitHubRepository(api)
+    private val repository = GitHubRepository(api, store) { store.login }
     private var readJob: Job? = null
     private var authJob: Job? = null
     private var authGeneration = 0
@@ -94,24 +95,64 @@ class ForgeViewModel(val store: LocalStore) : ViewModel() {
     private var pendingLink: LinkTarget? = null
     private var draftJob: Job? = null
     private val draftMutex = Mutex()
+    private var formDraftJob: Job? = null
+    private val formDraftMutex = Mutex()
+    private val formDraftValues = mutableMapOf<String, String>()
+
+    fun formDraft(key: String): String? = synchronized(formDraftValues) { formDraftValues[key] } ?: store.formDraft(key)
+
+    fun saveFormDraft(key: String, value: String) {
+        synchronized(formDraftValues) { formDraftValues[key] = value }
+        formDraftJob?.cancel()
+        val snapshot = synchronized(formDraftValues) { formDraftValues.toMap() }
+        formDraftJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(350)
+            formDraftMutex.withLock { snapshot.forEach { (k, v) -> store.formDraft(k, v) } }
+        }
+    }
+
+    fun clearFormDraft(key: String) {
+        formDraftJob?.cancel()
+        synchronized(formDraftValues) { formDraftValues.remove(key) }
+        runBlocking(Dispatchers.IO) { formDraftMutex.withLock { store.formDraft(key, null) } }
+    }
 
     private fun clearAccount() {
         draftJob?.cancel()
+        formDraftJob?.cancel()
+        synchronized(formDraftValues) { formDraftValues.clear() }
+        runBlocking(Dispatchers.IO) { formDraftMutex.withLock { } }
         runBlocking(Dispatchers.IO) { draftMutex.withLock { store.logout() } }
     }
 
-    fun flushDraft() {
+    fun flushDraft(): Boolean {
         draftJob?.cancel()
-        val editor = mutable.value.editor ?: return
-        runBlocking(Dispatchers.IO) { draftMutex.withLock { store.draft(editor) } }
+        formDraftJob?.cancel()
+        val editor = mutable.value.editor
+        val forms = synchronized(formDraftValues) { formDraftValues.toMap() }
+        return runCatching {
+            runBlocking(Dispatchers.IO) {
+                draftMutex.withLock { editor?.let(store::draft) }
+                formDraftMutex.withLock { forms.forEach { (k, v) -> store.formDraft(k, v) } }
+            }
+            true
+        }.getOrElse {
+            mutable.update { state -> state.copy(error = "下書きを保存できませんでした。入力をコピーしてから再試行してください。") }
+            false
+        }
     }
 
     init {
         if (credential.isNotEmpty()) refresh()
     }
 
-    private fun run(write: Boolean = false, block: suspend () -> Unit) {
+    private fun run(write: Boolean = false, recovery: Boolean = false, block: suspend () -> Unit) {
         if (mutable.value.writing) return
+        if (write && !recovery && store.pendingPost() != null) {
+            mutable.update { it.copy(error = "前の投稿の送信結果を先に確認してください。自動再送はしません。", pendingPost = store.pendingPost()) }
+            return
+        }
+        if (write && !flushDraft()) return
         readJob?.cancel()
         val currentId = ++operationId
         val job =
@@ -141,7 +182,7 @@ class ForgeViewModel(val store: LocalStore) : ViewModel() {
                         }
                 } finally {
                     if (currentId == operationId)
-                        mutable.update { it.copy(busy = false, writing = false) }
+                        mutable.update { it.copy(busy = false, writing = false, pendingPost = store.pendingPost()) }
                 }
             }
         if (!write) readJob = job
@@ -154,7 +195,7 @@ class ForgeViewModel(val store: LocalStore) : ViewModel() {
         }
         authGeneration++
         authJob?.cancel()
-        run(true) {
+        run(true, recovery = true) {
             val candidate = GitHubRepository(GitHubApi({ token.trim() }))
             val user = candidate.identity()
             if (store.login.isNotBlank() && store.login != user) clearAccount()
@@ -169,6 +210,7 @@ class ForgeViewModel(val store: LocalStore) : ViewModel() {
                     recent = store.recent(),
                     waiting = store.waiting(),
                     pending = store.pending(),
+                    pendingPost = store.pendingPost(),
                     busy = true,
                     writing = true,
                     notificationsSupported = notificationSupport(credential),
@@ -720,6 +762,7 @@ class ForgeViewModel(val store: LocalStore) : ViewModel() {
         val repo = mutable.value.route.repo
         run(true) {
             val item = repository.issue(repo, title, body, number, labels, assignees)
+            clearFormDraft(formKey(if (number == 0) "new-issue" else "edit-issue", repo, number))
             showSaved(item, "Issueを保存しました")
         }
     }
@@ -728,6 +771,7 @@ class ForgeViewModel(val store: LocalStore) : ViewModel() {
         val item = mutable.value.detail?.item ?: return
         run(true) {
             repository.comment(item, body)
+            clearFormDraft(formKey("comment", item.repo, item.number))
             showSaved(item, "コメントを追加しました")
         }
     }
@@ -744,6 +788,7 @@ class ForgeViewModel(val store: LocalStore) : ViewModel() {
         val detail = mutable.value.detail ?: return
         run(true) {
             repository.review(detail, event, body, mutable.value.login)
+            clearFormDraft(formKey("review", detail.item.repo, detail.item.number))
             showSaved(detail.item, "レビューを送信しました")
         }
     }
@@ -752,6 +797,7 @@ class ForgeViewModel(val store: LocalStore) : ViewModel() {
         val detail = mutable.value.detail ?: return
         run(true) {
             repository.inlineComment(detail, path, line, side, body)
+            clearFormDraft(formKey("inline", detail.item.repo, detail.item.number) + "|$path|$line|$side")
             showSaved(detail.item, "差分にコメントしました")
         }
     }
@@ -760,7 +806,7 @@ class ForgeViewModel(val store: LocalStore) : ViewModel() {
         val detail = mutable.value.detail ?: return
         run(true) {
             repository.merge(detail, method)
-            showSaved(detail.item.copy(state = "closed"), "マージが完了しました")
+            showSaved(detail.item.copy(state = "merged"), "マージが完了しました")
         }
     }
 
@@ -787,8 +833,31 @@ class ForgeViewModel(val store: LocalStore) : ViewModel() {
             val item = repository.createPr(p)
             store.pending(null)
             mutable.update { it.copy(pending = null) }
+            clearFormDraft(formKey("new-pr", repo, 0))
             showSaved(item, "PRを作成しました")
         }
+    }
+
+    fun resolvePost() {
+        val pending = store.pendingPost() ?: return
+        run(true, recovery = true) {
+            val result = repository.posts.resolve()
+            if (result == null) {
+                mutable.update { it.copy(notice = "投稿済みか確認できていません。GitHubで対象を確認してください。再送はしていません。") }
+            } else {
+                clearFormDraft(pending.draftKey)
+                val item = if (pending.number == 0) parseItem(result, pending.repo) else {
+                    Item(pending.repo, pending.number, "投稿確認済み", "", pending.actor, pending.isPr, "open", "")
+                }
+                showSaved(item, "GitHubに投稿済みであることを確認しました。再送はしていません。")
+            }
+        }
+    }
+
+    fun abandonPost() {
+        if (mutable.value.busy) return
+        store.pendingPost(null)
+        mutable.update { it.copy(pendingPost = null, notice = "照会待ちを解除しました。GitHubへの投稿は削除していません。") }
     }
 
     fun notification(n: Notification) {

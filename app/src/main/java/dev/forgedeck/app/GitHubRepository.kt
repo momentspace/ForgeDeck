@@ -4,12 +4,14 @@ import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.util.Base64
 import java.util.UUID
+import java.io.IOException
 import org.json.JSONArray
 import org.json.JSONObject
 
 data class PageResult<T>(val values: List<T>, val more: Boolean, val note: String = "")
 
-class GitHubRepository(val api: GitHubApi) {
+class GitHubRepository(val api: GitHubApi, journal: PostJournal = MemoryPostJournal(), actor: () -> String = { "" }) {
+    val posts = RecoverablePosts(api, journal, actor)
     suspend fun identity() = api.obj("user").getString("login")
 
     suspend fun repositories(page: Int): PageResult<Repo> {
@@ -183,7 +185,7 @@ class GitHubRepository(val api: GitHubApi) {
             }
         val comments =
             safeArray("repos/${item.repo}/issues/${item.number}/comments")
-                .map { Comment(it.str("body"), it.optJSONObject("user")?.str("login") ?: "") }
+                .map { Comment(cleanPostMarkers(it.str("body")), it.optJSONObject("user")?.str("login") ?: "") }
                 .toMutableList()
         val related = mutableListOf<Item>()
         if (!item.isPr) {
@@ -207,7 +209,7 @@ class GitHubRepository(val api: GitHubApi) {
         comments.addAll(
             safeArray("repos/${item.repo}/pulls/${item.number}/comments").map {
                 Comment(
-                    it.str("body"),
+                    cleanPostMarkers(it.str("body")),
                     it.optJSONObject("user")?.str("login") ?: "",
                     it.str("path"),
                     it.optInt("line"),
@@ -221,7 +223,7 @@ class GitHubRepository(val api: GitHubApi) {
                         (if (it.str("commit_id") != root.getJSONObject("head").str("sha"))
                             " · 別のコミットへのレビュー"
                         else "") +
-                        "\n${it.str("body")}",
+                        "\n${cleanPostMarkers(it.str("body"))}",
                     it.optJSONObject("user")?.str("login") ?: "",
                 )
             }
@@ -397,26 +399,33 @@ class GitHubRepository(val api: GitHubApi) {
                 .put("body", body)
                 .put("labels", JSONArray(labels))
                 .put("assignees", JSONArray(assignees))
-        val response =
-            api.request(
-                if (number == 0) "POST" else "PATCH",
-                "repos/$repo/issues" + (if (number > 0) "/$number" else ""),
-                payload,
-            )
-        return parseItem(JSONObject(response), repo)
+        if (number == 0) return parseItem(posts.send("new-issue", repo, 0, false, "repos/$repo/issues", payload), repo)
+        val path = "repos/$repo/issues/$number"
+        val response = try { JSONObject(api.request("PATCH", path, payload)) } catch (e: IOException) {
+            if (!uncertainWrite(e)) throw e
+            val actual = api.obj(path)
+            if (actual.str("title") != title || cleanPostMarkers(actual.str("body")) != body ||
+                actual.optJSONArray("labels")?.objects()?.map { it.str("name") }?.toSet().orEmpty() != labels.toSet() ||
+                actual.optJSONArray("assignees")?.objects()?.map { it.str("login") }?.toSet().orEmpty() != assignees.toSet()) throw e
+            actual
+        }
+        return parseItem(response, repo)
     }
 
     suspend fun itemState(item: Item, newState: String) {
-        api.request(
+        val path = "repos/${item.repo}/${if(item.isPr)"pulls" else "issues"}/${item.number}"
+        try { api.request(
             "PATCH",
-            "repos/${item.repo}/${if(item.isPr)"pulls" else "issues"}/${item.number}",
+            path,
             JSONObject().put("state", newState),
-        )
+        ) } catch (e: IOException) {
+            if (!uncertainWrite(e) || api.obj(path).str("state") != newState) throw e
+        }
     }
 
     suspend fun comment(item: Item, body: String) {
         require(body.isNotBlank())
-        api.post(
+        posts.send("comment", item.repo, item.number, item.isPr,
             "repos/${item.repo}/issues/${item.number}/comments",
             JSONObject().put("body", body),
         )
@@ -428,7 +437,7 @@ class GitHubRepository(val api: GitHubApi) {
         check(fresh.getJSONObject("head").getString("sha") == detail.headSha) {
             "PRが更新されています。差分を読み直してください"
         }
-        api.post(
+        posts.send("review", detail.item.repo, detail.item.number, true,
             "repos/${detail.item.repo}/pulls/${detail.item.number}/reviews",
             JSONObject().put("event", event).put("body", body).put("commit_id", detail.headSha),
         )
@@ -440,7 +449,7 @@ class GitHubRepository(val api: GitHubApi) {
         check(fresh.getJSONObject("head").str("sha") == detail.headSha) {
             "PRが更新されています。差分を読み直してください"
         }
-        api.post(
+        posts.send("inline", detail.item.repo, detail.item.number, true,
             "repos/${detail.item.repo}/pulls/${detail.item.number}/comments",
             JSONObject()
                 .put("body", body)
@@ -457,14 +466,18 @@ class GitHubRepository(val api: GitHubApi) {
         check(fresh.headSha == detail.headSha && fresh.safeCandidate) {
             "マージ条件やコミットが変わりました。最新状態を確認してください"
         }
-        val response =
-            JSONObject(
+        val response = try { JSONObject(
                 api.request(
                     "PUT",
                     "repos/${detail.item.repo}/pulls/${detail.item.number}/merge",
                     JSONObject().put("sha", detail.headSha).put("merge_method", method),
                 )
-            )
+            ) } catch (e: IOException) {
+                if (!uncertainWrite(e)) throw e
+                val actual = api.obj("repos/${detail.item.repo}/pulls/${detail.item.number}")
+                if (!actual.optBoolean("merged") || actual.getJSONObject("head").str("sha") != detail.headSha) throw e
+                JSONObject().put("merged", true)
+            }
         check(response.optBoolean("merged")) { "マージは完了していません。最新状態を確認してください" }
     }
 
@@ -630,16 +643,24 @@ class GitHubRepository(val api: GitHubApi) {
 
     suspend fun markRead(id: String) {
         require(id.all { it.isDigit() })
-        api.request("PATCH", "notifications/threads/$id")
+        val path = "notifications/threads/$id"
+        try { api.request("PATCH", path) } catch (e: IOException) {
+            if (!uncertainWrite(e)) throw e
+            val actual = api.obj(path)
+            if (!actual.has("unread") || actual.optBoolean("unread", true)) throw e
+        }
     }
 
     suspend fun markAllRead(): Boolean {
-        return api.reply(
+        return try { api.reply(
                 "PUT",
                 "notifications",
                 JSONObject().put("last_read_at", java.time.Instant.now().toString()),
             )
-            .code != 202
+            .code != 202 } catch (e: IOException) {
+                if (!uncertainWrite(e)) throw e
+                api.arr("notifications", mapOf("per_page" to "1", "all" to "false")).length() == 0
+            }
     }
 
     fun newBranch() = "forgedeck/change-${UUID.randomUUID().toString().take(12)}"

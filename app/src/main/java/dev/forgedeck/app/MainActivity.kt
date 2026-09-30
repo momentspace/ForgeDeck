@@ -305,6 +305,21 @@ fun ForgeApp(vm: ForgeViewModel, snapshot: UiState? = null) {
             Column(Modifier.fillMaxSize().padding(padding)) {
                 if (s.error.isNotBlank()) Message(s.error, true, vm::clearError)
                 if (s.notice.isNotBlank()) Message(s.notice, false, vm::clearError)
+                s.pendingPost?.let { p ->
+                    Card(Modifier.padding(12.dp)) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text("${p.repo}${if (p.number > 0) " #${p.number}" else ""} · 送信結果の照会待ち")
+                            Text("投稿済みか確認してから次の投稿へ進みます。再送はしません。")
+                            FlowRow {
+                                Button(onClick = vm::resolvePost, enabled = !s.busy && s.login.isNotEmpty()) { Text("送信結果を確認") }
+                                TextButton(onClick = { web(p.url) }) { Text("GitHubで確認") }
+                                TextButton(onClick = {
+                                    confirmation = "GitHubで投稿の有無を確認しましたか？照会待ちだけを解除します。未確認のまま再送すると二重投稿になる場合があります。" to vm::abandonPost
+                                }, enabled = !s.busy) { Text("確認済み・照会を解除") }
+                            }
+                        }
+                    }
+                }
                 s.cacheTime?.let {
                     Text(
                         "キャッシュ · ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))} · 書込みは接続時のみ",
@@ -1368,20 +1383,21 @@ fun DetailScreen(
         }
     }
     inline?.let { (path, line, side) ->
-        var body by rememberSaveable(path, line, side) { mutableStateOf("") }
+        val key = formKey("inline", item.repo, item.number) + "|$path|$line|$side"
+        var body by rememberSaveable(key) { mutableStateOf(vm.formDraft(key).orEmpty()) }
         var submitted by remember { mutableStateOf(false) }
         LaunchedEffect(s.busy, s.error) {
-            if (submitted && !s.busy && s.error.isEmpty() && s.notice.isNotEmpty()) inline = null
+            if (submitted && !s.busy && s.error.isEmpty() && s.notice.isNotEmpty()) { vm.clearFormDraft(key); inline = null }
         }
         AlertDialog(
-            onDismissRequest = { if (!s.writing) inline = null },
+            onDismissRequest = { if (!s.writing) { vm.flushDraft(); inline = null } },
             title = { Text("差分にコメント") },
             text = {
                 Column {
                     Text("$path:$line ($side)")
                     OutlinedTextField(
                         body,
-                        { body = it },
+                        { body = it; vm.saveFormDraft(key, it) },
                         label = { Text("コメント") },
                         enabled = !s.writing,
                     )
@@ -1400,7 +1416,7 @@ fun DetailScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { inline = null }, enabled = !s.writing) { Text("キャンセル") }
+                TextButton(onClick = { vm.flushDraft(); inline = null }, enabled = !s.writing) { Text("下書きを残して閉じる") }
             },
         )
     }
@@ -1452,31 +1468,36 @@ fun InboxScreen(s: UiState, vm: ForgeViewModel, web: (String) -> Unit, allRead: 
 @Composable
 fun ActionForm(action: String, s: UiState, vm: ForgeViewModel, close: () -> Unit) {
     val item = s.detail?.item
+    val key = formKey(action, s.route.repo, if (action in setOf("new-issue", "new-pr")) 0 else item?.number ?: s.route.number)
+    val stored = remember(key) { runCatching { org.json.JSONObject(vm.formDraft(key) ?: "{}") }.getOrDefault(org.json.JSONObject()) }
     var title by
-        rememberSaveable(action) {
-            mutableStateOf(if (action == "edit-issue") item?.title.orEmpty() else "")
+        rememberSaveable(key) {
+            mutableStateOf(stored.optString("title", if (action == "edit-issue") item?.title.orEmpty() else ""))
         }
     var body by
-        rememberSaveable(action) {
-            mutableStateOf(if (action == "edit-issue") item?.body.orEmpty() else "")
+        rememberSaveable(key) {
+            mutableStateOf(stored.optString("body", if (action == "edit-issue") item?.body.orEmpty() else ""))
         }
     var labels by
-        rememberSaveable(action) {
+        rememberSaveable(key) {
             mutableStateOf(
-                if (action == "edit-issue") item?.labels?.joinToString().orEmpty() else ""
+                stored.optString("labels", if (action == "edit-issue") item?.labels?.joinToString().orEmpty() else "")
             )
         }
     var assignees by
-        rememberSaveable(action) {
+        rememberSaveable(key) {
             mutableStateOf(
-                if (action == "edit-issue") item?.assignees?.joinToString().orEmpty() else ""
+                stored.optString("assignees", if (action == "edit-issue") item?.assignees?.joinToString().orEmpty() else "")
             )
         }
-    var base by rememberSaveable(action) { mutableStateOf(s.route.branch) }
-    var head by rememberSaveable(action) { mutableStateOf("") }
-    var submitted by remember { mutableStateOf(false) }
+    var base by rememberSaveable(key) { mutableStateOf(stored.optString("base", s.route.branch)) }
+    var head by rememberSaveable(key) { mutableStateOf(stored.optString("head", "")) }
+    var submitted by rememberSaveable(key) { mutableStateOf(false) }
+    fun persist() {
+        vm.saveFormDraft(key, org.json.JSONObject().put("title", title).put("body", body).put("labels", labels).put("assignees", assignees).put("base", base).put("head", head).toString())
+    }
     LaunchedEffect(s.busy, s.error, s.notice) {
-        if (submitted && !s.busy && s.error.isEmpty() && s.notice.isNotEmpty()) close()
+        if (submitted && !s.busy && s.error.isEmpty() && s.notice.isNotEmpty()) { vm.clearFormDraft(key); close() }
     }
     val heading =
         when (action) {
@@ -1487,7 +1508,7 @@ fun ActionForm(action: String, s: UiState, vm: ForgeViewModel, close: () -> Unit
             else -> "コメントする"
         }
     AlertDialog(
-        onDismissRequest = { if (!s.writing) close() },
+        onDismissRequest = { if (!s.writing) { vm.flushDraft(); close() } },
         title = { Text(heading) },
         text = {
             Column(
@@ -1495,30 +1516,32 @@ fun ActionForm(action: String, s: UiState, vm: ForgeViewModel, close: () -> Unit
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(s.route.repo)
+                Text("入力はこの端末に下書き保存します。", style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { vm.clearFormDraft(key); close() }, enabled = !s.busy) { Text("下書きを破棄して閉じる") }
                 if (action in setOf("new-issue", "edit-issue", "new-pr"))
                     OutlinedTextField(
                         title,
-                        { title = it },
+                        { title = it; persist() },
                         label = { Text("タイトル") },
                         enabled = !s.writing,
                     )
                 if (action == "new-pr") {
                     OutlinedTextField(
                         base,
-                        { base = it },
+                        { base = it; persist() },
                         label = { Text("baseブランチ") },
                         enabled = !s.writing,
                     )
                     OutlinedTextField(
                         head,
-                        { head = it },
+                        { head = it; persist() },
                         label = { Text("headブランチ · 同じrepo") },
                         enabled = !s.writing,
                     )
                 }
                 OutlinedTextField(
                     body,
-                    { body = it },
+                    { body = it; persist() },
                     label = { Text(if (action in setOf("comment", "review")) "コメント" else "本文") },
                     modifier = Modifier.heightIn(min = 140.dp),
                     enabled = !s.writing,
@@ -1526,13 +1549,13 @@ fun ActionForm(action: String, s: UiState, vm: ForgeViewModel, close: () -> Unit
                 if (action in setOf("new-issue", "edit-issue")) {
                     OutlinedTextField(
                         labels,
-                        { labels = it },
+                        { labels = it; persist() },
                         label = { Text("ラベル · カンマ区切り") },
                         enabled = !s.writing,
                     )
                     OutlinedTextField(
                         assignees,
-                        { assignees = it },
+                        { assignees = it; persist() },
                         label = { Text("担当 · GitHubユーザー名") },
                         enabled = !s.writing,
                     )
@@ -1603,6 +1626,6 @@ fun ActionForm(action: String, s: UiState, vm: ForgeViewModel, close: () -> Unit
                     }
             }
         },
-        dismissButton = { TextButton(onClick = close, enabled = !s.writing) { Text("キャンセル") } },
+        dismissButton = { TextButton(onClick = { vm.flushDraft(); close() }, enabled = !s.writing) { Text("下書きを残して閉じる") } },
     )
 }
