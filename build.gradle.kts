@@ -4,7 +4,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.1.20" apply false
 }
 
-val formatter by configurations.creating
+val formatter by configurations.creating { isTransitive=false }
 dependencies { add(formatter.name,"com.facebook:ktfmt:0.54:jar-with-dependencies") }
 tasks.register<JavaExec>("formatKotlin") {
     group = "formatting"
