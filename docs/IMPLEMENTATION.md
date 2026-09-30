@@ -1,6 +1,6 @@
 # Android実装・検証の状況
 
-2026-09-30。開発PR: #19。これは実装内容と確認済み範囲の記録であり、全Issueの完了宣言ではありません。
+2026-10-01 JST。開発PR: #19。これは実装内容と確認済み範囲の記録であり、全Issueの完了宣言ではありません。
 
 ## 実装
 
@@ -28,7 +28,9 @@ open PR、draftではない、push権限、競合なし、GitHubのmergeStateが
 - prototypeのDOM・操作テストとJavaScript構文確認。ブラウザでのモバイル描画は未確認。
 - Android CI run [36682932162](https://github.com/momentspace/ForgeDeck/actions/runs/36682932162)：debug / releaseビルド、lint、単体テスト成功。debug APK artifactあり。
 - SDK準備失敗と画面コードの構文エラーは修正済み。
-- CI run [36687503237](https://github.com/momentspace/ForgeDeck/actions/runs/36687503237)では追加したキャッシュ・通知・マージ条件のテストとAndroidテスト、APKインストール・MainActivity起動まで成功。画面画像から320dp・文字200%でタイトルと下部ラベルのはみ出しを確認し、最終修正を再検証中。
+- CI run [36688660640](https://github.com/momentspace/ForgeDeck/actions/runs/36688660640)：lint、単体テスト22件、Android API 35テスト8件、debug / unsigned release APKビルドが成功。APKのインストール・MainActivity起動とクラッシュログ検査も成功。テストレポートと画像を取得して確認済み。
+- 320dp・文字200%のタイトルと下部タブのはみ出しが解消されていることを画像で確認。ログイン・repo・Deck・ファイル・編集画面はseededデータの検証です。
+- 最終補正として保存上限を超えた応答の古いキャッシュを削除し、新しいETagと古い本文の組合せを防止。回帰テストを追加。システムバーのアイコン色をアプリのライト/ダークに追従させます。これらの最新CI結果はPR #19のChecksで確認してください。
 
 単体テストは分類の優先度、未知条件の候補除外、明示的関係だけのグループ化、リンク / path / refの検証、diff行番号、認証ヘッダーをredirectへ送らないこと、403と古いキャッシュの分離、SHA競合、移動の原子的tree作成、PR重複回避、通知の202受付、Markdownの危険リンク無効化を対象にします。
 
@@ -43,3 +45,4 @@ Android端末上のテストはKeystore暗号化、ログアウト、元SHAが�
 5. 本人が管理する同じ署名鍵でrelease APKを作り、インストールと更新。
 
 #4 / #16 / #17に実証結果を記録し、満たされるまではEpic #1を閉じない。
+

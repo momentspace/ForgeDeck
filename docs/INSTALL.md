@@ -2,7 +2,7 @@
 
 ## まず試す
 
-1. [PR #19](https://github.com/momentspace/ForgeDeck/pull/19) のChecksから成功したAndroid runを開く。
+1. [検証済み試用APK](https://github.com/momentspace/ForgeDeck/actions/runs/36688660640/artifacts/11084829391)、または [Android CI](https://github.com/momentspace/ForgeDeck/actions/workflows/android.yml) の最新の成功runを開く。GitHubへのログインが必要。
 2. `ForgeDeck-debug-apk` をダウンロード・展開し、`app-debug.apk` をAndroid 8.0以上の端末へ転送。
 3. APKを開き、そのファイルを開くアプリのインストール許可をAndroidの画面で設定する。
 4. ForgeDeckで本人のトークンを入力する。トークンをIssue、PR、チャットへ貼らない。
@@ -58,3 +58,4 @@ GitHub Actionsで署名する場合、repositoryのSettings → Secrets and vari
 ローカルでも `FORGEDECK_KEYSTORE_PATH`、`FORGEDECK_STORE_PASSWORD`、`FORGEDECK_KEY_ALIAS`、`FORGEDECK_KEY_PASSWORD` を環境変数に渡して `./gradlew :app:assembleRelease` で作れます。環境変数やパスワードをコマンド履歴・ログに残さない方法で設定してください。
 
 署名鍵の登録と署名付きAPKの実証はまだ行っていません。鍵が異なるdebug版からrelease版への移行はアンインストールが必要です。同じ署名鍵とapplication IDのrelease版は、versionCodeを上げて更新します。
+

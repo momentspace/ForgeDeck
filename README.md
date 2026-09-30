@@ -2,9 +2,12 @@
 
 いつものリポジトリをすぐ開き、ファイルを扱い、Issue / PR の次の一手を見つけるAndroid GitHubクライアント。
 
-**Android版を実装中です。配布・実アカウントでの受入確認が済むまではalphaです。** 開発は [PR #19](https://github.com/momentspace/ForgeDeck/pull/19)、完成条件は [Epic #1](https://github.com/momentspace/ForgeDeck/issues/1) で管理します。Wiki / Projects / Enterprise / 複数アカウントは初期スコープ外です。
+**Android試用版（alpha）が利用できます。実アカウント・実機・配布署名の受入確認は未完了です。** 開発は [PR #19](https://github.com/momentspace/ForgeDeck/pull/19)、完成条件は [Epic #1](https://github.com/momentspace/ForgeDeck/issues/1) で管理します。Wiki / Projects / Enterprise / 複数アカウントは初期スコープ外です。
 
 ## Android版
+
+[検証済み試用APK（ZIP）](https://github.com/momentspace/ForgeDeck/actions/runs/36688660640/artifacts/11084829391) を展開し、`app-debug.apk` をAndroidで開いてインストールしてください。GitHubへのログインが必要です。最新版は [Android CI](https://github.com/momentspace/ForgeDeck/actions/workflows/android.yml) の成功runから取得できます。
+
 
 - リポジトリ一覧、ownerとrepo名、検索、ピン留め、最近使った場所。
 - ブランチとパンくず、UTF-8テキスト・Markdown閲覧、端末への保存。
@@ -40,3 +43,4 @@ APKは `app/build/outputs/apk/debug/app-debug.apk`。PRのActionsにもAPK、テ
 - [コンセプト](docs/CONCEPT.md) / [完成までの計画](docs/ROADMAP.md) / [サンプルの操作](docs/PROTOTYPE.md)
 - [ADR: Android](docs/adr/0001-android-architecture.md) / [ADR: 認証](docs/adr/0002-authentication.md) / [ADR: Deck](docs/adr/0003-action-deck.md)
 - [依存ライブラリとライセンス](docs/THIRD_PARTY.md)
+
