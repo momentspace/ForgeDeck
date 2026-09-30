@@ -107,7 +107,12 @@ class ForgeViewModel(val store: LocalStore, apiOverride: GitHubApi? = null) : Vi
         val snapshot = synchronized(formDraftValues) { formDraftValues.toMap() }
         formDraftJob = viewModelScope.launch(Dispatchers.IO) {
             delay(350)
-            formDraftMutex.withLock { snapshot.forEach { (k, v) -> store.formDraft(k, v) } }
+            try {
+                formDraftMutex.withLock { snapshot.forEach { (k, v) -> store.formDraft(k, v) } }
+            } catch (e: CancellationException) { throw e
+            } catch (_: Exception) {
+                report("下書きを保存できませんでした。入力をコピーしてから再試行してください。")
+            }
         }
     }
 
@@ -663,7 +668,11 @@ class ForgeViewModel(val store: LocalStore, apiOverride: GitHubApi? = null) : Vi
         draftJob =
             viewModelScope.launch(Dispatchers.IO) {
                 delay(350)
-                draftMutex.withLock { store.draft(new) }
+                try { draftMutex.withLock { store.draft(new) }
+                } catch (e: CancellationException) { throw e
+                } catch (_: Exception) {
+                    report("下書きを保存できませんでした。入力をコピーしてから再試行してください。")
+                }
             }
     }
 

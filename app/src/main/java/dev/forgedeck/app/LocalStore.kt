@@ -142,7 +142,7 @@ class LocalStore(context: Context) : PostJournal {
     }
 
     fun draft(editor: Editor) {
-        prefs
+        val saved = prefs
             .edit()
             .putString(
                 "$login|draft:${editor.key}",
@@ -156,6 +156,7 @@ class LocalStore(context: Context) : PostJournal {
                     .toString(),
             )
             .commit()
+        check(saved) { "ファイルの下書きを保存できませんでした" }
     }
 
     fun restore(editor: Editor): Editor =
@@ -179,7 +180,7 @@ class LocalStore(context: Context) : PostJournal {
     }
 
     fun pending(value: PendingPr?) {
-        if (value == null) prefs.edit().remove("$login|pending").commit()
+        val saved = if (value == null) prefs.edit().remove("$login|pending").commit()
         else
             prefs
                 .edit()
@@ -195,6 +196,7 @@ class LocalStore(context: Context) : PostJournal {
                         .toString(),
                 )
                 .commit()
+        check(saved) { "保存したコミットの復旧情報を保存できませんでした" }
     }
 
     fun pending(): PendingPr? =

@@ -342,7 +342,7 @@ class GitHubRepository(val api: GitHubApi, journal: PostJournal = MemoryPostJour
                         o.getJSONObject("repository").getString("nameWithOwner"),
                         o.getInt("number"),
                         o.str("title"),
-                        o.str("body"),
+                        cleanPostMarkers(o.str("body")),
                         o.optJSONObject("author")?.str("login") ?: "",
                         false,
                         o.str("state").lowercase(),

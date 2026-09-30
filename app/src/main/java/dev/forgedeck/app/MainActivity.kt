@@ -1385,7 +1385,7 @@ fun DetailScreen(
     inline?.let { (path, line, side) ->
         val key = formKey("inline", item.repo, item.number) + "|$path|$line|$side"
         var body by rememberSaveable(key) { mutableStateOf(vm.formDraft(key).orEmpty()) }
-        var submitted by remember { mutableStateOf(false) }
+        var submitted by rememberSaveable(key) { mutableStateOf(false) }
         LaunchedEffect(s.busy, s.error) {
             if (submitted && !s.busy && s.error.isEmpty() && s.notice.isNotEmpty()) { vm.clearFormDraft(key); inline = null }
         }
