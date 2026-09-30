@@ -56,10 +56,12 @@ class MainActivity:ComponentActivity(){
         setContent{ForgeApp(vm)}
         intent?.dataString?.let(vm::deepLink)
     }
+    override fun onStop(){if(::vm.isInitialized)vm.flushDraft();super.onStop()}
     override fun onNewIntent(intent:Intent){super.onNewIntent(intent);setIntent(intent);intent.dataString?.let(vm::deepLink)}
 }
-@Composable fun ForgeApp(vm:ForgeViewModel){
-    val s by vm.ui.collectAsStateWithLifecycle()
+@Composable fun ForgeApp(vm:ForgeViewModel,snapshot:UiState?=null){
+    val live by vm.ui.collectAsStateWithLifecycle()
+    val s=snapshot ?: live
     val dark=when(s.theme){"dark"->true;"light"->false;else->isSystemInDarkTheme()}
     val colors=if(dark)darkColorScheme(primary=Color(0xFF78EDC5),background=Color(0xFF10161E),surface=Color(0xFF19212C),onSurface=Color(0xFFEDF3FA),onPrimary=Color(0xFF06241D))else lightColorScheme(primary=Color(0xFF006A51),background=Color(0xFFF6F8FC),surface=Color.White,onSurface=Color(0xFF172331))
     MaterialTheme(colorScheme=colors){

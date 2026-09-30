@@ -45,6 +45,7 @@ class GitHubApi(
             }
         } catch(error: IOException) {
             if(cached && method=="GET" && error !is ApiError) cacheGet(key)?.let { (text,time)->stale(time);return text }
+            if(method !in setOf("GET","HEAD") && path!="graphql" && error !is ApiError)throw IOException("送信結果を確認できませんでした。操作が成功している可能性があります。更新またはGitHubで確認してから再送してください。",error)
             throw error
         }
     }

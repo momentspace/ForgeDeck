@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -41,6 +44,10 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
     private var operationId = 0
     private val history = mutableListOf<UiState>()
     private var pendingLink: LinkTarget? = null
+    private var draftJob: Job? = null
+    private val draftMutex=Mutex()
+    private fun clearAccount(){draftJob?.cancel();runBlocking(Dispatchers.IO){draftMutex.withLock{store.logout()}}}
+    fun flushDraft(){draftJob?.cancel();val editor=mutable.value.editor ?: return;runBlocking(Dispatchers.IO){draftMutex.withLock { store.draft(editor) }}}
     init { if(credential.isNotEmpty())refresh() }
     private fun run(write:Boolean=false,block:suspend ()->Unit) {
         if(mutable.value.writing)return
@@ -51,7 +58,7 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
             try { withContext(Dispatchers.IO) { block() } }
             catch(e:CancellationException){throw e}
             catch(e:Exception){
-                if(e is ApiError && e.code==401) { credential="";store.logout();history.clear();mutable.value=UiState(theme=store.theme,error=e.message.orEmpty()) }
+                if(e is ApiError && e.code==401) { credential="";clearAccount();history.clear();mutable.value=UiState(theme=store.theme,error=e.message.orEmpty()) }
                 else mutable.update { it.copy(error=e.message?.take(600) ?: "処理に失敗しました。下書きは端末に保持しています。") }
             } finally { if(currentId==operationId)mutable.update { it.copy(busy=false,writing=false) } }
         }
@@ -62,7 +69,7 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
         authJob?.cancel()
         run(true) {
             val candidate=GitHubRepository(GitHubApi({token.trim()}));val user=candidate.identity()
-            if(store.login.isNotBlank() && store.login!=user)store.logout()
+            if(store.login.isNotBlank() && store.login!=user)clearAccount()
             store.saveToken(token.trim(),user);credential=token.trim();history.clear()
             mutable.value=UiState(login=user,theme=store.theme,pins=store.pins(),recent=store.recent(),waiting=store.waiting(),pending=store.pending(),busy=true,writing=true)
             val target=pendingLink;pendingLink=null
@@ -97,15 +104,15 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
         }
     }
     fun cancelDeviceFlow(){authJob?.cancel();mutable.update { it.copy(deviceCode="",deviceUrl="",busy=false) }}
-    fun logout(){if(mutable.value.writing)return;readJob?.cancel();authJob?.cancel();credential="";store.logout();history.clear();mutable.value=UiState(theme=store.theme)}
+    fun logout(){if(mutable.value.writing)return;readJob?.cancel();authJob?.cancel();credential="";clearAccount();history.clear();mutable.value=UiState(theme=store.theme)}
     fun theme(value:String){store.theme=value;mutable.update { it.copy(theme=value) }}
     fun report(message:String){mutable.update { it.copy(error=message) }}
     fun clearError(){mutable.update { it.copy(error="",notice="") }}
     fun pin(full:String){store.toggle("pins",full);mutable.update { it.copy(pins=store.pins()) }}
     fun wait(item:Item){store.toggle("waiting",item.key);mutable.update { it.copy(waiting=store.waiting()) }}
-    fun home(page:Page){if(mutable.value.writing)return;readJob?.cancel();operationId++;history.clear();mutable.update { it.copy(route=Route(page),tab=page,page=1,items=emptyList(),detail=null,editor=null,notice="",error="") };refresh()}
-    fun back(){if(mutable.value.writing)return;readJob?.cancel();operationId++;mutable.value=if(history.isNotEmpty())history.removeAt(history.lastIndex).copy(busy=false,writing=false,editor=null) else mutable.value.copy(route=Route(mutable.value.tab),editor=null,busy=false);}
-    private fun go(route:Route){history.add(mutable.value.copy(busy=false,writing=false));mutable.update { it.copy(route=route,page=1,more=false,detail=null,document=null,entries=emptyList(),editor=null,notice="",error="") }}
+    fun home(page:Page){if(mutable.value.writing)return;flushDraft();readJob?.cancel();operationId++;history.clear();mutable.update { it.copy(route=Route(page),tab=page,page=1,items=emptyList(),detail=null,editor=null,notice="",error="") };refresh()}
+    fun back(){if(mutable.value.writing)return;flushDraft();readJob?.cancel();operationId++;mutable.value=if(history.isNotEmpty())history.removeAt(history.lastIndex).copy(busy=false,writing=false,editor=null) else mutable.value.copy(route=Route(mutable.value.tab),editor=null,busy=false);}
+    private fun go(route:Route){flushDraft();history.add(mutable.value.copy(busy=false,writing=false));mutable.update { it.copy(route=route,page=1,more=false,detail=null,document=null,entries=emptyList(),editor=null,notice="",error="") }}
     fun openRepo(full:String){if(!validRepo(full))return;run {
         val repo=repository.repo(full);store.visit(full);go(Route(Page.FILES,full,repo.defaultBranch));mutable.update { it.copy(selectedRepo=repo,repoKind="files",recent=store.recent()) };loadFiles()
     }}
@@ -147,8 +154,8 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
         val fresh=Editor(s.route.repo,s.route.branch,if(operation=="new")"" else path,path,d?.sha.takeIf { operation!="new" }.orEmpty(),d?.text.takeIf { operation!="new" }.orEmpty(),if(operation=="delete")"" else if(operation=="new")uploadedText else d!!.text!!,operation,repository.newBranch(),"${mapOf("edit" to "更新","new" to "追加","rename" to "移動","delete" to "削除")[operation]}: $path")
         go(s.route.copy(page=Page.EDITOR));val restored=store.restore(fresh);mutable.update { it.copy(editor=restored,notice=if(restored.originalSha!=fresh.originalSha)"下書きを復元しました。元ファイルが更新されているため、最新との差分を確認してください。"else"") }
     }
-    fun editor(change:(Editor)->Editor){val old=mutable.value.editor ?: return;val new=change(old);store.draft(new);mutable.update { it.copy(editor=new) }}
-    fun discardEditor(){mutable.value.editor?.let(store::discard);back()}
+    fun editor(change:(Editor)->Editor){val old=mutable.value.editor ?: return;val new=change(old);mutable.update { it.copy(editor=new) };draftJob?.cancel();draftJob=viewModelScope.launch(Dispatchers.IO){delay(350);draftMutex.withLock { store.draft(new) }} }
+    fun discardEditor(){flushDraft();mutable.value.editor?.let(store::discard);mutable.update{it.copy(editor=null)};back()}
     fun rebaseEditor(){run { val e=mutable.value.editor ?: return@run;val latest=repository.document(e.repo,e.base,e.oldPath,cached=false);check(latest.text!=null){"最新ファイルを編集できません"};val next=e.copy(original=latest.text!!,originalSha=latest.sha);store.draft(next);mutable.update { it.copy(editor=next,notice="最新の内容と下書きの差分を確認してください。まだ保存していません。") } }}
     private suspend fun showSaved(item:Item,message:String) {
         mutable.update { it.copy(route=Route(Page.ITEM,item.repo,number=item.number),detail=Detail(item),notice=message,editor=null) }
@@ -156,7 +163,7 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
         catch(e:CancellationException){throw e}
         catch(e:Exception){ if(e is ApiError && e.code==401)throw e;mutable.update { it.copy(notice="$message。詳細の再取得に失敗しました。更新で確認できます。") } }
     }
-    fun saveEditor(){val e=mutable.value.editor ?: return;run(true){
+    fun saveEditor(){val e=mutable.value.editor ?: return;flushDraft();run(true){
         val p=repository.propose(e){prepared->store.pending(prepared);mutable.update { it.copy(pending=prepared) }}
         store.discard(e);mutable.update { it.copy(editor=null,route=Route(Page.FILES,p.repo,p.head,""),repoKind="files",notice="ブランチを作成しました。PR作成を確認しています。") }
         val item=repository.createPr(p);store.pending(null);mutable.update { it.copy(pending=null) };showSaved(item,"PRを作成しました")

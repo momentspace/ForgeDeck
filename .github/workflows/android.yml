@@ -24,6 +24,16 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: Prepare reproducible developer sources
+        run: gradle --no-daemon formatKotlin wrapper --gradle-version 8.11.1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ForgeDeck-developer-sources
+          path: |
+            app/src
+            gradle/wrapper
+            gradlew
+            gradlew.bat
       - name: Build and verify
         run: gradle --no-daemon :app:lintDebug :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
       - uses: actions/upload-artifact@v4
@@ -35,6 +45,26 @@ jobs:
         with:
           name: ForgeDeck-release-unsigned
           path: app/build/outputs/apk/release/*.apk
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          disable-animations: true
+          script: |
+            gradle --no-daemon :app:connectedDebugAndroidTest
+            adb pull /sdcard/Android/data/dev.forgedeck.app/files/screenshots app/build/native-screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ForgeDeck-native-screenshots
+          path: app/build/native-screenshots
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -42,3 +72,4 @@ jobs:
           path: |
             app/build/reports/lint-results-debug.html
             app/build/reports/tests/testDebugUnitTest/
+            app/build/reports/androidTests/connected/
