@@ -67,7 +67,7 @@ fun textDiff(old: String, new: String): List<DiffLine> {
 }
 fun JSONArray.objects() = (0 until length()).mapNotNull { optJSONObject(it) }
 fun JSONObject.str(name: String) = if (isNull(name)) "" else optString(name, "")
-fun parseRepo(o: JSONObject) = Repo(o.getString("full_name"), o.str("description"), o.str("language"), o.optBoolean("private"), o.optString("default_branch", "main"), o.optJSONObject("permissions")?.optBoolean("push") == true,o.has("private"),o.has("permissions"))
+fun parseRepo(o: JSONObject) = Repo(o.getString("full_name"), o.str("description"), o.str("language"), o.optBoolean("private"), o.optString("default_branch", "main"), o.optJSONObject("permissions")?.optBoolean("push") == true,o.has("private")&&!o.isNull("private"),o.optJSONObject("permissions")?.has("push")==true)
 fun parseItem(o: JSONObject, repo: String) = Item(repo, o.getInt("number"), o.str("title"), o.str("body"), o.optJSONObject("user")?.str("login") ?: "", o.has("pull_request") || o.has("head"), if(o.optBoolean("merged") || o.str("merged_at").isNotBlank() || o.optJSONObject("pull_request")?.str("merged_at")?.isNotBlank()==true)"merged"else o.str("state"), o.str("updated_at"), o.optJSONArray("assignees")?.objects()?.map { it.str("login") } ?: emptyList(), o.optJSONArray("labels")?.objects()?.map { it.str("name") } ?: emptyList(), o.str("html_url"))
 enum class Page { REPOS, FILES, FILE, EDITOR, ITEM, DECK, INBOX }
 data class Route(val page: Page = Page.REPOS, val repo: String = "", val branch: String = "", val path: String = "", val number: Int = 0)

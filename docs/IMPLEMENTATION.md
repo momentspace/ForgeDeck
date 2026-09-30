@@ -28,7 +28,7 @@ open PR、draftではない、push権限、競合なし、GitHubのmergeStateが
 - prototypeのDOM・操作テストとJavaScript構文確認。ブラウザでのモバイル描画は未確認。
 - Android CI run [36682932162](https://github.com/momentspace/ForgeDeck/actions/runs/36682932162)：debug / releaseビルド、lint、単体テスト成功。debug APK artifactあり。
 - SDK準備失敗と画面コードの構文エラーは修正済み。
-- 後続のMarkdown / 通知 / 下書きの追加とエミュレーター検証は進行中。最新の成功run・件数・画像確認結果は検証後に追記する。
+- CI run [36687503237](https://github.com/momentspace/ForgeDeck/actions/runs/36687503237)では追加したキャッシュ・通知・マージ条件のテストとAndroidテスト、APKインストール・MainActivity起動まで成功。画面画像から320dp・文字200%でタイトルと下部ラベルのはみ出しを確認し、最終修正を再検証中。
 
 単体テストは分類の優先度、未知条件の候補除外、明示的関係だけのグループ化、リンク / path / refの検証、diff行番号、認証ヘッダーをredirectへ送らないこと、403と古いキャッシュの分離、SHA競合、移動の原子的tree作成、PR重複回避、通知の202受付、Markdownの危険リンク無効化を対象にします。
 

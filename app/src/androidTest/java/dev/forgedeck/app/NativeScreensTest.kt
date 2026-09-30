@@ -64,6 +64,10 @@ class NativeScreensTest {
         compose.onNodeWithText("待ち 1").performClick()
         compose.onNodeWithText("依頼したレビューを待っています").assertIsDisplayed()
         compose.onNodeWithText("完了する作業",substring=true).assertIsDisplayed()
+        compose.onNodeWithText("関連する作業を折り畳む").performClick()
+        compose.onNodeWithText("完了する作業",substring=true).assertDoesNotExist()
+        compose.onNodeWithText("関連する作業 1件を開く").performClick()
+        compose.onNodeWithText("完了する作業",substring=true).assertIsDisplayed()
         capture("03-deck")
     }
     @Test fun fileBranchAndPathRemainExplicitWithLargeText() {

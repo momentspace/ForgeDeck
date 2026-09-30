@@ -39,6 +39,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -63,7 +64,7 @@ class MainActivity:ComponentActivity(){
     val live by vm.ui.collectAsStateWithLifecycle()
     val s=snapshot ?: live
     val dark=when(s.theme){"dark"->true;"light"->false;else->isSystemInDarkTheme()}
-    val colors=if(dark)darkColorScheme(primary=Color(0xFF78EDC5),background=Color(0xFF10161E),surface=Color(0xFF19212C),onSurface=Color(0xFFEDF3FA),onPrimary=Color(0xFF06241D))else lightColorScheme(primary=Color(0xFF006A51),background=Color(0xFFF6F8FC),surface=Color.White,onSurface=Color(0xFF172331))
+    val colors=if(dark)darkColorScheme(primary=Color(0xFF78EDC5),background=Color(0xFF10161E),surface=Color(0xFF19212C),onSurface=Color(0xFFEDF3FA),onPrimary=Color(0xFF06241D),secondary=Color(0xFF78EDC5),secondaryContainer=Color(0xFF26483E),onSecondaryContainer=Color(0xFFBBF8DE),surfaceVariant=Color(0xFF243140),onSurfaceVariant=Color(0xFFBAC8D9),surfaceContainerHighest=Color(0xFF253140),surfaceContainer=Color(0xFF1C2733))else lightColorScheme(primary=Color(0xFF006A51),background=Color(0xFFF6F8FC),surface=Color.White,onSurface=Color(0xFF172331),secondary=Color(0xFF006A51),secondaryContainer=Color(0xFFCBEFDF),onSecondaryContainer=Color(0xFF073A2A),surfaceVariant=Color(0xFFE8EEF5),surfaceContainerHighest=Color(0xFFE8EEF5),surfaceContainer=Color(0xFFF2F5FA))
     MaterialTheme(colorScheme=colors){
         var modal by rememberSaveable{mutableStateOf("")}
         var confirmation by remember{mutableStateOf<Pair<String,()->Unit>?>(null)}
@@ -93,14 +94,14 @@ class MainActivity:ComponentActivity(){
         val save=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")){uri->if(uri!=null)scope.launch{try{withContext(Dispatchers.IO){context.contentResolver.openOutputStream(uri)?.use{it.write(s.document?.text.orEmpty().toByteArray(Charsets.UTF_8))} ?: error("保存先を開けません")}}catch(e:Exception){vm.report("ファイルを保存できません")}}}
         val holder=rememberSaveableStateHolder()
         Scaffold(topBar={Column{
-            TopAppBar(title={Text("ForgeDeck",fontWeight=FontWeight.SemiBold)},navigationIcon={if(s.route.page !in setOf(Page.REPOS,Page.DECK,Page.INBOX))IconButton(onClick={move(vm::back)},enabled=!s.writing){Icon(Icons.AutoMirrored.Filled.ArrowBack,"戻る")}},actions={
+            TopAppBar(title={Text("ForgeDeck",fontWeight=FontWeight.SemiBold,fontSize=18.sp,maxLines=1,overflow=TextOverflow.Ellipsis)},navigationIcon={if(s.route.page !in setOf(Page.REPOS,Page.DECK,Page.INBOX))IconButton(onClick={move(vm::back)},enabled=!s.writing){Icon(Icons.AutoMirrored.Filled.ArrowBack,"戻る")}},actions={
                 if(s.login.isNotEmpty())IconButton(onClick=vm::refresh,enabled=!s.busy&&s.route.page!=Page.EDITOR){Icon(Icons.Default.Refresh,"更新")}
                 IconButton(onClick={modal="account"},enabled=!s.writing){Icon(Icons.Default.AccountCircle,"アカウントと外観")}
             })
             if(s.route.repo.isNotEmpty())Text(s.route.repo,Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=6.dp),color=colors.primary)
             if(s.busy)LinearProgressIndicator(Modifier.fillMaxWidth())
         }},bottomBar={if(s.login.isNotEmpty())NavigationBar{
-            listOf(Page.REPOS,Page.DECK,Page.INBOX).forEach{page->NavigationBarItem(selected=s.tab==page,onClick={move{vm.home(page)}},enabled=!s.writing,icon={Icon(when(page){Page.REPOS->Icons.Default.Folder;Page.DECK->Icons.Default.Dashboard;else->Icons.Default.Inbox},null)},label={Text(when(page){Page.REPOS->"リポジトリ";Page.DECK->"Deck";else->"受信箱"})})}
+            listOf(Page.REPOS,Page.DECK,Page.INBOX).forEach{page->NavigationBarItem(selected=s.tab==page,onClick={move{vm.home(page)}},enabled=!s.writing,icon={Icon(when(page){Page.REPOS->Icons.Default.Folder;Page.DECK->Icons.Default.Dashboard;else->Icons.Default.Inbox},when(page){Page.REPOS->"リポジトリ";Page.DECK->"次の一手";else->"通知の受信箱"})},label={Text(when(page){Page.REPOS->"Repo";Page.DECK->"Deck";else->"通知"},maxLines=1,overflow=TextOverflow.Ellipsis)})}
         }}){padding->Column(Modifier.fillMaxSize().padding(padding)){
             if(s.error.isNotBlank())Message(s.error,true,vm::clearError)
             if(s.notice.isNotBlank())Message(s.notice,false,vm::clearError)
@@ -123,7 +124,7 @@ class MainActivity:ComponentActivity(){
         if(deferred!=null)AlertDialog(onDismissRequest={deferred=null},title={Text("編集を終了しますか？")},text={Text("下書きは端末に保存しています。破棄する場合は編集画面の「下書きを破棄」を使ってください。")},confirmButton={TextButton(onClick={val action=deferred;deferred=null;action?.invoke()}){Text("下書きを残して移動")}},dismissButton={TextButton(onClick={deferred=null}){Text("編集を続ける")}})
         confirmation?.let{(label,action)->AlertDialog(onDismissRequest={if(!s.writing)confirmation=null},title={Text("操作を確認")},text={Text(label)},confirmButton={TextButton(onClick={confirmation=null;action()},enabled=!s.busy){Text("実行する")}},dismissButton={TextButton(onClick={confirmation=null}){Text("キャンセル")}})}
         when(modal){
-            "account"->AlertDialog(onDismissRequest={modal=""},title={Text(s.login.ifEmpty{"アカウント"})},text={Column{Text("トークンはKeystoreの鍵で暗号化して保存します。外部AIには送信しません。");Text("外観",Modifier.padding(top=12.dp));listOf("system" to "端末に合わせる","light" to "ライト","dark" to "ダーク").forEach{(value,label)->Row(Modifier.clickable{vm.theme(value)}.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){RadioButton(s.theme==value,{vm.theme(value)});Text(label)}}}},confirmButton={TextButton(onClick={modal=""}){Text("閉じる")}},dismissButton={if(s.login.isNotEmpty())TextButton(onClick={modal="";confirmation="認証情報、下書き、キャッシュ、ピン留めを端末から削除します。" to vm::logout}){Text("ログアウト")}})
+            "account"->AlertDialog(onDismissRequest={modal=""},title={Text(s.login.ifEmpty{"アカウント"})},text={Column{Text("認証情報は暗号化して、この端末だけに保存します。");Text("外観",Modifier.padding(top=12.dp));listOf("system" to "端末に合わせる","light" to "ライト","dark" to "ダーク").forEach{(value,label)->Row(Modifier.clickable{vm.theme(value)}.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){RadioButton(s.theme==value,{vm.theme(value)});Text(label)}}}},confirmButton={TextButton(onClick={modal=""}){Text("閉じる")}},dismissButton={if(s.login.isNotEmpty())TextButton(onClick={modal="";confirmation="認証情報、下書き、キャッシュ、ピン留めを端末から削除します。" to vm::logout}){Text("ログアウト")}})
             "branches"->AlertDialog(onDismissRequest={modal=""},title={Text("ブランチを選ぶ")},text={LazyColumn{items(s.branches){branch->TextButton(onClick={modal="";vm.chooseBranch(branch)},modifier=Modifier.fillMaxWidth()){Text(branch)}};if(s.branchesMore)item{TextButton(onClick={vm.loadBranches(true)},enabled=!s.busy){Text("さらに取得")}}}},confirmButton={TextButton(onClick={modal=""}){Text("閉じる")}})
             "new-issue","edit-issue","new-pr","comment","review"->ActionForm(modal,s,vm){modal=""}
         }
@@ -134,19 +135,27 @@ class MainActivity:ComponentActivity(){
 @Composable fun Empty(text:String){Column(Modifier.fillMaxWidth().padding(30.dp),horizontalAlignment=Alignment.CenterHorizontally){Icon(Icons.Default.Inbox,null);Text(text,Modifier.padding(top=12.dp))}}
 @Composable fun LoginScreen(s:UiState,vm:ForgeViewModel,web:(String)->Unit){
     var token by remember{mutableStateOf("")};var client by rememberSaveable{mutableStateOf("")}
+    var help by rememberSaveable{mutableStateOf(false)};var app by rememberSaveable{mutableStateOf(false)}
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
-        Text("いつものリポジトリへ。",style=MaterialTheme.typography.headlineMedium);Text("GitHub.comの本人のアカウントを接続します。トークンはパスワードと同じように扱ってください。")
+        Text("いつものリポジトリへ。",style=MaterialTheme.typography.headlineMedium)
+        Text("本人のGitHubアカウントを接続します。認証情報は暗号化して、この端末に保存します。")
         OutlinedTextField(token,{token=it},label={Text("GitHubトークン")},visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),singleLine=true,modifier=Modifier.fillMaxWidth(),enabled=!s.busy&&s.deviceCode.isEmpty())
         Button(onClick={vm.login(token);token=""},enabled=token.isNotBlank()&&!s.busy&&s.deviceCode.isEmpty(),modifier=Modifier.fillMaxWidth()){Text("アカウントを確認して接続")}
-        TextButton(onClick={web("https://github.com/settings/personal-access-tokens/new")}){Text("トークンを発行する")}
-        Text("通知APIはclassic PATが必要です。fine-grained PAT・GitHub Appのときはブラウザで通知を確認します。",style=MaterialTheme.typography.bodySmall)
-        TextButton(onClick={web("https://github.com/settings/tokens/new")}){Text("classic PATを発行する（通知対応）")}
-        Text("選んだrepoにContents・Issues・Pull requestsの読取り／書込み、Checks・Commit statuses・Metadataの読取りを付けます。通知・Organization・ルールの取得は認証方式で制限されます。使えない機能は理由を表示します。",style=MaterialTheme.typography.bodySmall)
-        HorizontalDivider();Text("登録済みGitHub Appで接続",style=MaterialTheme.typography.titleMedium)
-        OutlinedTextField(client,{client=it},label={Text("GitHub AppのClient ID")},modifier=Modifier.fillMaxWidth(),enabled=s.deviceCode.isEmpty())
-        Text("Device Flowを有効にしたAppが必要です。client secretは不要。失効したら再認証します。",style=MaterialTheme.typography.bodySmall)
-        if(s.deviceCode.isEmpty())OutlinedButton(onClick={vm.startDeviceFlow(client)},enabled=client.isNotBlank()&&!s.busy){Text("ブラウザで認証")}
-        else{SelectionContainer{Text(s.deviceCode,style=MaterialTheme.typography.headlineMedium)};Button(onClick={web(s.deviceUrl)}){Text("GitHubでコードを入力")};TextButton(onClick=vm::cancelDeviceFlow){Text("認証を中止")}}
+        TextButton(onClick={web("https://github.com/settings/personal-access-tokens/new")}){Text("トークンを作る")}
+        TextButton(onClick={help=!help}){Text(if(help)"権限の説明を閉じる"else"必要な権限・通知について")}
+        if(help){
+            Text("対象のrepoを選び、Contents・Issues・Pull requestsに読取り/書込み、Checks・Commit statuses・Metadataに読取りを付けます。Organizationでは追加承認が必要な場合があります。",style=MaterialTheme.typography.bodySmall)
+            Text("fine-grained PAT・GitHub AppではGitHubの通知をブラウザで確認します。通知もアプリで扱う場合はclassic PATのnotifications、private repo操作にはrepo権限が必要です。トークンを他の人やチャットへ渡さないでください。",style=MaterialTheme.typography.bodySmall)
+            TextButton(onClick={web("https://github.com/settings/tokens/new")}){Text("classic PATを作る（通知対応）")}
+        }
+        HorizontalDivider()
+        TextButton(onClick={app=!app}){Text("GitHub Appで接続（設定済みの場合）")}
+        if(app||s.deviceCode.isNotEmpty()){
+            OutlinedTextField(client,{client=it},label={Text("GitHub AppのClient ID")},modifier=Modifier.fillMaxWidth(),enabled=s.deviceCode.isEmpty()&&!s.busy)
+            Text("Device Flowを有効にしたAppが必要です。通知はブラウザで確認します。失効時は再認証します。",style=MaterialTheme.typography.bodySmall)
+            if(s.deviceCode.isEmpty())OutlinedButton(onClick={vm.startDeviceFlow(client)},enabled=client.isNotBlank()&&!s.busy){Text("ブラウザで認証")}
+            else{SelectionContainer{Text(s.deviceCode,style=MaterialTheme.typography.headlineMedium)};Button(onClick={web(s.deviceUrl)}){Text("GitHubでコードを入力")};TextButton(onClick=vm::cancelDeviceFlow){Text("認証を中止")}}
+        }
     }
 }
 @Composable fun ReposScreen(s:UiState,vm:ForgeViewModel){

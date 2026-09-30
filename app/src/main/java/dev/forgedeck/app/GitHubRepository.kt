@@ -15,7 +15,12 @@ class GitHubRepository(val api: GitHubApi) {
         return PageResult(list,list.size==50)
     }
     suspend fun searchRepos(query:String,page:Int):PageResult<Repo> {
-        val result=api.obj("search/repositories",mapOf("q" to "$query in:name","per_page" to "50","page" to "$page"),true)
+        val exact=query.trim()
+        if(validRepo(exact)) {
+            try{return PageResult(listOf(repo(exact)),false,"owner/repoで直接取得しました")}catch(e:ApiError){if(e.code!=404)throw e}
+        }
+        val search=if(validRepo(exact))"${exact.substringAfter('/')} in:name user:${exact.substringBefore('/')}"else"$query in:name"
+        val result=api.obj("search/repositories",mapOf("q" to search,"per_page" to "50","page" to "$page"),true)
         val list=result.getJSONArray("items").objects().map(::parseRepo)
         return PageResult(list,page*50<minOf(result.optInt("total_count"),1000),"GitHub検索（公開repoを含む） · 最大1000件"+(if(result.optBoolean("incomplete_results"))" · 部分取得" else ""))
     }
