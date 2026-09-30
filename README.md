@@ -2,11 +2,11 @@
 
 いつものリポジトリをすぐ開き、ファイルを扱い、Issue / PR の次の一手を見つけるAndroid GitHubクライアント。
 
-**Android試用版（alpha）が利用できます。実アカウント・実機・配布署名の受入確認は未完了です。** Androidの基本実装は [PR #19](https://github.com/momentspace/ForgeDeck/pull/19) で統合済み。完成条件は [Epic #1](https://github.com/momentspace/ForgeDeck/issues/1) で管理します。Wiki / Projects / Enterprise / 複数アカウントは初期スコープ外です。
+**Android試用版0.2.0（alpha）が利用できます。実アカウント・実機・配布署名の受入確認は未完了です。** Androidの基本実装は [PR #19](https://github.com/momentspace/ForgeDeck/pull/19) で統合済み。投稿復旧・下書き・配布検証は [PR #20](https://github.com/momentspace/ForgeDeck/pull/20) で統合済み。完成条件は [Epic #1](https://github.com/momentspace/ForgeDeck/issues/1) で管理します。Wiki / Projects / Enterprise / 複数アカウントは初期スコープ外です。
 
 ## Android版
 
-[検証済み試用APK（ZIP）](https://github.com/momentspace/ForgeDeck/actions/runs/36688660640/artifacts/11084829391) を展開し、`app-debug.apk` をAndroidで開いてインストールしてください。GitHubへのログインが必要です。最新版は [Android CI](https://github.com/momentspace/ForgeDeck/actions/workflows/android.yml) の成功runから取得できます。
+[検証済み試用APK（ZIP）](https://github.com/momentspace/ForgeDeck/actions/runs/36786565835/artifacts/11130097266) を展開し、`app-debug.apk` をAndroidで開いてインストールしてください。GitHubへのログインが必要です。最新版は [Android CI](https://github.com/momentspace/ForgeDeck/actions/workflows/android.yml) の成功runから取得できます。
 
 
 - リポジトリ一覧、ownerとrepo名、検索、ピン留め、最近使った場所。

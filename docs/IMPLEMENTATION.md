@@ -47,7 +47,7 @@ Android端末上のテストはKeystore暗号化、ログアウト、元SHAが�
 #4 / #16 / #17に実証結果を記録し、満たされるまではEpic #1を閉じない。
 
 
-## 0.2.0で追加する復旧と配布検証
+## 0.2.0の復旧と配布検証（PR #20 統合済み）
 
 - Issue・コメント・レビュー・行コメントは送信前に端末の操作記録を確定し、曖昧な失敗は識別子と投稿者をGETで照合。未確認の投稿がある間は別の書込みを止め、自動再送を避けます。
 - Issue本文・担当・状態、PRマージ、通知既読も曖昧な失敗後に現在の状態をGETで確認。確認できなければ失敗表示を残します。
@@ -56,3 +56,11 @@ Android端末上のテストはKeystore暗号化、ログアウト、元SHAが�
 - CIで一時テスト鍵によるrelease署名・署名検証・エミュレータのインストールとMainActivity起動を追加。本人の鍵・実機更新の受入とは区別します。
 
 最新変更の検証結果は開発PRのChecksと保存されたレポートを正とします。プライベートリポジトリ表示の調査・修正はユーザー指示で保留中です。本人アカウント、登録App、Xiaomi 14 / TalkBack、個人用署名鍵を必要とする受入条件は継続して #4 / #5 / #7 / #15 / #16 / #17 に残します。
+
+## 0.2.0 の検証結果
+
+[CI run 13](https://github.com/momentspace/ForgeDeck/actions/runs/36786565835) は全工程成功。取得したHTMLレポートでJVM 29件（debug / release各variant）、Android API 35 14件・失敗0を確認しました。PostRecoveryTest 7件とWriteFailureTest 3件を含みます。debug / release lintとビルド、一時テスト鍵のapksigner検証、debug / signed releaseのインストールとMainActivity起動が成功。両起動のUI XMLとAndroidRuntimeログに致命的クラッシュがないこと、復旧画面と署名releaseのログイン画像も確認済みです。
+
+[試用APK ZIP](https://github.com/momentspace/ForgeDeck/actions/runs/36786565835/artifacts/11130097266)：0.2.0 / versionCode 2。APK SHA-256: `4acce4c037b4081b61187b580ab158213b54d0965e6895d7df582cf7bd31b10b`。
+
+#2 / #6 / #8 / #9 / #10 / #11 / #12 は製造と自動検証の範囲で完了。上記の本人・登録App・実機・継続署名の受入は未完了で、Epic #1 は開いたままです。

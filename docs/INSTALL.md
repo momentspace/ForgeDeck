@@ -2,7 +2,7 @@
 
 ## まず試す
 
-1. [検証済み試用APK](https://github.com/momentspace/ForgeDeck/actions/runs/36688660640/artifacts/11084829391)、または [Android CI](https://github.com/momentspace/ForgeDeck/actions/workflows/android.yml) の最新の成功runを開く。GitHubへのログインが必要。
+1. [検証済み試用APK](https://github.com/momentspace/ForgeDeck/actions/runs/36786565835/artifacts/11130097266)、または [Android CI](https://github.com/momentspace/ForgeDeck/actions/workflows/android.yml) の最新の成功runを開く。GitHubへのログインが必要。
 2. `ForgeDeck-debug-apk` をダウンロード・展開し、`app-debug.apk` をAndroid 8.0以上の端末へ転送。
 3. APKを開き、そのファイルを開くアプリのインストール許可をAndroidの画面で設定する。
 4. ForgeDeckで本人のトークンを入力する。トークンをIssue、PR、チャットへ貼らない。
