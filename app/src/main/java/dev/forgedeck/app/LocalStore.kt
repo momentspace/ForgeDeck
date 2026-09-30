@@ -42,6 +42,8 @@ class LocalStore(context: Context) {
         }
     }
     fun cacheGet(key: String): Pair<String, Long>? = cache.getString("$login|$key", null)?.let { runCatching { JSONObject(it).let { o -> o.getString("body") to o.getLong("time") } }.getOrNull() }
+    fun validatorGet(key:String):Pair<String,String>? = cache.getString("$login|$key",null)?.let{runCatching{val o=JSONObject(it);o.str("etag") to o.str("modified")}.getOrNull()}
+    fun validatorPut(key:String,etag:String,modified:String) { synchronized(cache){val raw=cache.getString("$login|$key",null) ?: return;val o=JSONObject(raw).put("etag",etag).put("modified",modified);cache.edit().putString("$login|$key",o.toString()).commit()} }
     private fun set(name: String) = prefs.getStringSet("$login|$name", emptySet())?.toSet() ?: emptySet()
     fun pins() = set("pins")
     fun waiting() = set("waiting")

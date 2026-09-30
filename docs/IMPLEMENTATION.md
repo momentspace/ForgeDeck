@@ -7,7 +7,7 @@
 | 機能 | 実装内容 | 残る確認・制限 |
 | --- | --- | --- |
 | 認証 | PATの本人確認、Keystore暗号化、GitHub App Device Flow、401再認証 | 登録App・本人private repo・Organizationの実証が必要。更新secretは保持せず再認証する |
-| API | REST / GraphQL、ページング、権限・API制限・競合、GETの通信失敗時キャッシュ | HTTPエラーで古いprivateデータへ戻さない。書込みを自動再送しない。ETag永続化は未実装 |
+| API | REST / GraphQL、ページング、権限・API制限・競合、GETの通信失敗時キャッシュ | HTTPエラーで古いprivateデータへ戻さない。書込みを自動再送しない。ETag / Last-Modifiedと304再検証に対応 |
 | リポジトリ | owner/name、ローカル・GitHub検索、ピン留め、最近使った場所 | GitHub検索最大1000件。取得済み範囲を表示 |
 | ファイル | branch、階層、Markdown・コード、作成・編集・UTF-8アップロード・移動・削除・端末保存 | UTF-8・1MB以下。一覧API上限1000件。コード表示先頭2000行。画像・バイナリ編集は対象外 |
 | 書込み | 最新baseと元SHA、mode保持、移動を一つのtree / commitにする、新ref→PR | 途中成功を端末に記録し、同じhead/baseのPRを確認して再開。権限と実アカウントでの受入は未確認 |
@@ -19,7 +19,7 @@
 
 ## マージ候補の基準
 
-open PR、draftではない、push権限、競合なし、GitHubのmergeStateがCLEAN、レビューAPPROVED、最新headのチェックを全取得、チェックが一件以上で全件success / neutral / skipped、部分取得なし。送信前に全条件を再取得し、表示していたhead SHAとも比較してAPIへshaを渡します。
+open PR、draftではない、push権限、競合なし、GitHubのmergeStateがCLEAN、レビューAPPROVED、最新headのチェックと必須/任意条件を全取得、チェックが一件以上で全件success / neutral / skipped、部分取得なし。送信前に全条件を再取得し、表示していたhead SHAとも比較してAPIへshaを渡します。
 
 承認不要のPR、チェックのないPR、条件が取得できないPRは候補にしません。個人のレビューなしPRもGitHubで確認・マージしてください。これは既知の保守的な制限です。ルール未確認を成功へ読み替えません。
 

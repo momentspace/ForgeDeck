@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
 
-data class Repo(val fullName: String, val description: String = "", val language: String = "", val private: Boolean = false, val defaultBranch: String = "main", val canPush: Boolean = false) {
+data class Repo(val fullName: String, val description: String = "", val language: String = "", val private: Boolean = false, val defaultBranch: String = "main", val canPush: Boolean = false, val privacyKnown: Boolean = false, val permissionKnown: Boolean = false) {
     val owner get() = fullName.substringBefore('/')
     val name get() = fullName.substringAfter('/')
 }
@@ -14,11 +14,11 @@ data class Item(val repo: String, val number: Int, val title: String, val body: 
     val key get() = "$repo#$number"
 }
 data class Comment(val body: String, val author: String, val path: String = "", val line: Int = 0)
-data class Check(val name: String, val state: String, val url: String = "")
+data class Check(val name: String, val state: String, val url: String = "", val required:Boolean?=null)
 data class ChangedFile(val path: String, val status: String, val additions: Int, val deletions: Int, val patch: String?)
 data class Notification(val id: String, val title: String, val repo: String, val kind: String, val number: Int, val reason: String, val unread: Boolean)
 data class Detail(val item: Item, val comments: List<Comment> = emptyList(), val related: List<Item> = emptyList(), val checks: List<Check> = emptyList(), val files: List<ChangedFile> = emptyList(), val headSha: String = "", val headBranch: String = "", val baseBranch: String = "", val draft: Boolean = false, val requested: List<String> = emptyList(), val mergeable: Boolean? = null, val mergeState: String = "UNKNOWN", val reviewDecision: String = "UNKNOWN", val canPush: Boolean = false, val checksKnown: Boolean = false, val fetchedAt: Long = 0, val partial: List<String> = emptyList()) {
-    val safeCandidate get() = item.isPr && item.state == "open" && !draft && canPush && mergeable == true && mergeState == "CLEAN" && reviewDecision == "APPROVED" && checksKnown && checks.isNotEmpty() && checks.all { it.state in setOf("success", "neutral", "skipped") } && partial.isEmpty()
+    val safeCandidate get() = item.isPr && item.state == "open" && !draft && canPush && mergeable == true && mergeState == "CLEAN" && reviewDecision == "APPROVED" && checksKnown && checks.isNotEmpty() && checks.all { it.required!=null && it.state in setOf("success", "neutral", "skipped") } && partial.isEmpty()
 }
 enum class Lane(val label: String) { MINE("自分の番"), WAITING("待ち"), READY("マージ候補"), ALL("すべて") }
 data class Assessment(val lane: Lane, val reason: String)
@@ -67,7 +67,7 @@ fun textDiff(old: String, new: String): List<DiffLine> {
 }
 fun JSONArray.objects() = (0 until length()).mapNotNull { optJSONObject(it) }
 fun JSONObject.str(name: String) = if (isNull(name)) "" else optString(name, "")
-fun parseRepo(o: JSONObject) = Repo(o.getString("full_name"), o.str("description"), o.str("language"), o.optBoolean("private"), o.optString("default_branch", "main"), o.optJSONObject("permissions")?.optBoolean("push") == true)
+fun parseRepo(o: JSONObject) = Repo(o.getString("full_name"), o.str("description"), o.str("language"), o.optBoolean("private"), o.optString("default_branch", "main"), o.optJSONObject("permissions")?.optBoolean("push") == true,o.has("private"),o.has("permissions"))
 fun parseItem(o: JSONObject, repo: String) = Item(repo, o.getInt("number"), o.str("title"), o.str("body"), o.optJSONObject("user")?.str("login") ?: "", o.has("pull_request") || o.has("head"), if(o.optBoolean("merged") || o.str("merged_at").isNotBlank() || o.optJSONObject("pull_request")?.str("merged_at")?.isNotBlank()==true)"merged"else o.str("state"), o.str("updated_at"), o.optJSONArray("assignees")?.objects()?.map { it.str("login") } ?: emptyList(), o.optJSONArray("labels")?.objects()?.map { it.str("name") } ?: emptyList(), o.str("html_url"))
 enum class Page { REPOS, FILES, FILE, EDITOR, ITEM, DECK, INBOX }
 data class Route(val page: Page = Page.REPOS, val repo: String = "", val branch: String = "", val path: String = "", val number: Int = 0)

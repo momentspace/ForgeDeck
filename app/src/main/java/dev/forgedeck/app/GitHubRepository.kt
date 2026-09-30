@@ -63,7 +63,7 @@ class GitHubRepository(val api: GitHubApi) {
             return Detail(fresh,comments,related.distinctBy { it.key },fetchedAt=System.currentTimeMillis(),partial=partial)
         }
         comments.addAll(safeArray("repos/${item.repo}/pulls/${item.number}/comments").map { Comment(it.str("body"),it.optJSONObject("user")?.str("login") ?: "",it.str("path"),it.optInt("line")) })
-        comments.addAll(safeArray("repos/${item.repo}/pulls/${item.number}/reviews").map { Comment("レビュー: ${it.str("state")}\n${it.str("body")}",it.optJSONObject("user")?.str("login") ?: "") })
+        comments.addAll(safeArray("repos/${item.repo}/pulls/${item.number}/reviews").map { Comment("レビュー: ${it.str("state")}"+(if(it.str("commit_id")!=root.getJSONObject("head").str("sha"))" · 別のコミットへのレビュー"else"")+"\n${it.str("body")}",it.optJSONObject("user")?.str("login") ?: "") })
         val changes=safeArray("repos/${item.repo}/pulls/${item.number}/files").map { ChangedFile(it.str("filename"),it.str("status"),it.optInt("additions"),it.optInt("deletions"),it.str("patch").takeIf { p->p.isNotEmpty() }) }
         val sha=root.getJSONObject("head").getString("sha")
         val checks=mutableListOf<Check>(); var checksKnown=true
@@ -77,12 +77,24 @@ class GitHubRepository(val api: GitHubApi) {
         } catch(e:ApiError) { if(e.code==401)throw e;checksKnown=false;partial.add("CIチェックの一部が未確認です") }
         var mergeState="UNKNOWN";var decision="UNKNOWN"
         try {
-            val query="query(\$owner:String!,\$name:String!,\$number:Int!){repository(owner:\$owner,name:\$name){pullRequest(number:\$number){headRefOid mergeStateStatus reviewDecision closingIssuesReferences(first:50){nodes{number title body state updatedAt url author{login} repository{nameWithOwner}} pageInfo{hasNextPage}}}}}"
+            val query="query(\$owner:String!,\$name:String!,\$number:Int!){repository(owner:\$owner,name:\$name){pullRequest(number:\$number){headRefOid mergeStateStatus reviewDecision commits(last:1){nodes{commit{oid statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name status conclusion detailsUrl isRequired(pullRequestNumber:\$number)} ... on StatusContext{context state targetUrl isRequired(pullRequestNumber:\$number)}} pageInfo{hasNextPage}}}}}} closingIssuesReferences(first:50){nodes{number title body state updatedAt url author{login} repository{nameWithOwner}} pageInfo{hasNextPage}}}}}"
             val result=api.post("graphql",JSONObject().put("query",query).put("variables",JSONObject().put("owner",item.repo.substringBefore('/')).put("name",item.repo.substringAfter('/')).put("number",item.number)))
             if(result.has("errors"))throw ApiError(422,"PRルールを確認できませんでした")
             val pr=result.getJSONObject("data").getJSONObject("repository").getJSONObject("pullRequest")
             if(pr.getString("headRefOid")!=sha)throw ApiError(409,"PRのコミットが更新されました")
             mergeState=pr.str("mergeStateStatus");decision=pr.str("reviewDecision").ifEmpty { "UNKNOWN" }
+            val commit=pr.getJSONObject("commits").getJSONArray("nodes").getJSONObject(0).getJSONObject("commit")
+            if(commit.str("oid")!=sha)throw ApiError(409,"チェック対象のコミットが更新されています")
+            val contexts=commit.optJSONObject("statusCheckRollup")?.optJSONObject("contexts")
+            if(contexts?.getJSONObject("pageInfo")?.optBoolean("hasNextPage")==true){checksKnown=false;partial.add("GraphQLチェックが100件を超えています")}
+            else {
+                checks.clear()
+                contexts?.getJSONArray("nodes")?.objects()?.forEach { c ->
+                    val run=c.str("__typename")=="CheckRun"
+                    checks.add(Check(if(run)c.str("name")else c.str("context"),if(run){if(c.str("status")=="COMPLETED")c.str("conclusion").lowercase().ifBlank{"unknown"}else"pending"}else c.str("state").lowercase(),if(run)c.str("detailsUrl")else c.str("targetUrl"),if(c.has("isRequired")&&!c.isNull("isRequired"))c.getBoolean("isRequired")else null))
+                }
+                if(checks.any{it.required==null})partial.add("必須/任意チェックの一部が未確認です")
+            }
             val refs=pr.getJSONObject("closingIssuesReferences")
             if(refs.getJSONObject("pageInfo").optBoolean("hasNextPage"))partial.add("関連Issueは最初の50件です")
             refs.getJSONArray("nodes").objects().forEach { o -> related.add(Item(o.getJSONObject("repository").getString("nameWithOwner"),o.getInt("number"),o.str("title"),o.str("body"),o.optJSONObject("author")?.str("login") ?: "",false,o.str("state").lowercase(),o.str("updatedAt"),url=o.str("url"))) }

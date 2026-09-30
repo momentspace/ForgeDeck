@@ -31,14 +31,14 @@ data class UiState(
     val page: Int = 1, val more: Boolean = false, val repoKind: String = "files", val itemState: String = "open", val repoQuery: String = "",
     val pins: Set<String> = emptySet(), val recent: List<String> = emptyList(), val waiting: Set<String> = emptySet(),
     val editor: Editor? = null, val pending: PendingPr? = null, val theme: String = "system", val cacheTime: Long? = null,
-    val deviceCode: String = "", val deviceUrl: String = "", val notificationsSupported: Boolean = true
+    val deckFetchedAt:Long=0, val deviceCode: String = "", val deviceUrl: String = "", val notificationsSupported: Boolean = true
 )
 class ForgeViewModel(val store: LocalStore): ViewModel() {
     private var credential = store.token()
     private fun notificationSupport(token:String)=!token.startsWith("github_pat_")&&!token.startsWith("ghu_")
     private val mutable = MutableStateFlow(UiState(login=if(credential.isNotBlank())store.login else "",theme=store.theme,pins=store.pins(),recent=store.recent(),waiting=store.waiting(),pending=store.pending(),notificationsSupported=notificationSupport(credential)))
     val ui = mutable.asStateFlow()
-    private val api = GitHubApi({credential},store::cachePut,store::cacheGet,{time -> mutable.update { it.copy(cacheTime=time) }})
+    private val api = GitHubApi({credential},store::cachePut,store::cacheGet,{time -> mutable.update { it.copy(cacheTime=time) }},validatorGet=store::validatorGet,validatorPut=store::validatorPut)
     private val repository = GitHubRepository(api)
     private var readJob: Job? = null
     private var authJob: Job? = null
@@ -135,7 +135,7 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
         val queries=listOf("is:issue is:open assignee:$user","is:pr is:open author:$user","is:pr is:open review-requested:$user")
         val results=queries.map { repository.searchItems(it,page) }
         val values=((if(page>1)mutable.value.items else emptyList())+results.flatMap { it.values }).distinctBy { it.key }
-        mutable.update { it.copy(items=values,page=page,more=results.any { r->r.more },notice="取得済み ${values.size}件 · 詳細の自動確認は先頭12PR。未確認は候補にしません。"+results.map { r->r.note }.filter { t->t.isNotEmpty() }.joinToString()) }
+        mutable.update { it.copy(items=values,deckFetchedAt=it.cacheTime ?: System.currentTimeMillis(),page=page,more=results.any { r->r.more },notice="取得済み ${values.size}件 · 詳細の自動確認は先頭12PR。未確認は候補にしません。"+results.map { r->r.note }.filter { t->t.isNotEmpty() }.joinToString()) }
         for(item in values.filter { it.isPr }.take(12)) {
             try{val detail=repository.detail(item);mutable.update { it.copy(deckDetails=it.deckDetails+(item.key to detail)) }}catch(e:CancellationException){throw e}catch(e:ApiError){if(e.code==401)throw e}
         }

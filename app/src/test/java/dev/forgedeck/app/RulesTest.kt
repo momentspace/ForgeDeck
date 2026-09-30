@@ -5,10 +5,11 @@ import org.junit.Test
 
 class RulesTest {
     private val item=Item("owner/repo",12,"Change","","someone",true,"open","")
-    private val ready=Detail(item,checks=listOf(Check("test","success")),headSha="head",mergeable=true,mergeState="CLEAN",reviewDecision="APPROVED",canPush=true,checksKnown=true)
+    private val ready=Detail(item,checks=listOf(Check("test","success",required=true)),headSha="head",mergeable=true,mergeState="CLEAN",reviewDecision="APPROVED",canPush=true,checksKnown=true)
     @Test fun unknownConditionsNeverBecomeReady(){
         assertTrue(ready.safeCandidate)
         assertFalse(ready.copy(checksKnown=false).safeCandidate)
+        assertFalse(ready.copy(checks=listOf(Check("test","success",required=null))).safeCandidate)
         assertFalse(ready.copy(checks=emptyList()).safeCandidate)
         assertFalse(ready.copy(mergeable=null).safeCandidate)
         assertFalse(ready.copy(reviewDecision="UNKNOWN").safeCandidate)
