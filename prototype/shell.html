@@ -1,0 +1,17 @@
+<div id="forgedeck-preview" class="viz-dotted-background">
+  <div id="fd-app" lang="ja">
+    <header class="fd-header">
+      <button class="fd-brand" data-action="home" aria-label="ForgeDeck リポジトリ一覧"><span class="fd-mark">F</span><span>ForgeDeck</span></button>
+      <div class="fd-header-end"><span class="fd-demo">DEMO</span><button class="fd-icon" data-action="appearance" aria-label="外観を切り替える"><i data-lucide="sun-moon" aria-hidden="true"></i></button><button class="fd-avatar" data-action="account" aria-label="アカウント">m</button></div>
+    </header>
+    <div class="fd-demo-note">サンプルデータ · GitHubへの送信なし</div>
+    <main id="fd-main"></main>
+    <nav class="fd-nav" aria-label="メインナビゲーション">
+      <button data-action="nav" data-page="repos"><i data-lucide="folder-git-2" aria-hidden="true"></i><span>リポジトリ</span></button>
+      <button data-action="nav" data-page="deck"><i data-lucide="panels-top-left" aria-hidden="true"></i><span>Deck</span></button>
+      <button data-action="nav" data-page="inbox"><i data-lucide="inbox" aria-hidden="true"></i><span>受信箱</span><span id="fd-unread" class="fd-unread"></span></button>
+    </nav>
+    <div id="fd-toast" class="fd-toast" role="status" aria-live="polite"></div>
+    <dialog id="fd-dialog"><div id="fd-dialog-content"></div></dialog>
+  </div>
+</div>
