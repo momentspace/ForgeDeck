@@ -105,7 +105,7 @@ class MainActivity:ComponentActivity(){
             if(s.error.isNotBlank())Message(s.error,true,vm::clearError)
             if(s.notice.isNotBlank())Message(s.notice,false,vm::clearError)
             s.cacheTime?.let{Text("キャッシュ · ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))} · 書込みは接続時のみ",Modifier.padding(12.dp),style=MaterialTheme.typography.bodySmall)}
-            s.pending?.let{p->Card(Modifier.padding(12.dp)){Column(Modifier.padding(12.dp)){Text("${p.repo} · ${p.head}");Text("ブランチ・PRの保存結果を確認します。重複を調べてから続行します。");Button(onClick=vm::retryPending,enabled=!s.busy){Text("PRを確認・作成")}}}}
+            s.pending?.let{p->Card(Modifier.padding(12.dp)){Column(Modifier.padding(12.dp)){Text("${p.repo} · ${p.head}");Text("ブランチ・PRの保存結果を確認します。重複を調べてから続行します。");Button(onClick=vm::retryPending,enabled=!s.busy){Text("PRを確認・作成")};TextButton(onClick={confirmation="GitHubに作成済みのブランチやPRは残ります。結果を確認してから、続行待ちを解除してください。" to vm::abandonPending},enabled=!s.busy){Text("続行待ちを解除")}}}}
             Box(Modifier.weight(1f).fillMaxWidth()){
                 if(s.login.isEmpty())LoginScreen(s,vm,::web)else holder.SaveableStateProvider(s.route.toString()){
                     when(s.route.page){
@@ -115,7 +115,7 @@ class MainActivity:ComponentActivity(){
                         Page.EDITOR->EditorScreen(s,vm){confirmation="${s.editor?.repo}\n${s.editor?.base} → ${s.editor?.target}\n変更を新しいブランチへ保存してPRを作成します。" to vm::saveEditor}
                         Page.ITEM->DetailScreen(s,vm,{modal=it},{label,action->confirmation=label to action},::web)
                         Page.DECK->DeckScreen(s,vm)
-                        Page.INBOX->InboxScreen(s,vm){confirmation="GitHub上のすべての通知を既読にします。" to vm::allRead}
+                        Page.INBOX->InboxScreen(s,vm,::web){confirmation="GitHub上のすべての通知を既読にします。" to vm::allRead}
                     }
                 }
             }
@@ -139,6 +139,8 @@ class MainActivity:ComponentActivity(){
         OutlinedTextField(token,{token=it},label={Text("GitHubトークン")},visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),singleLine=true,modifier=Modifier.fillMaxWidth(),enabled=!s.busy&&s.deviceCode.isEmpty())
         Button(onClick={vm.login(token);token=""},enabled=token.isNotBlank()&&!s.busy&&s.deviceCode.isEmpty(),modifier=Modifier.fillMaxWidth()){Text("アカウントを確認して接続")}
         TextButton(onClick={web("https://github.com/settings/personal-access-tokens/new")}){Text("トークンを発行する")}
+        Text("通知APIはclassic PATが必要です。fine-grained PAT・GitHub Appのときはブラウザで通知を確認します。",style=MaterialTheme.typography.bodySmall)
+        TextButton(onClick={web("https://github.com/settings/tokens/new")}){Text("classic PATを発行する（通知対応）")}
         Text("選んだrepoにContents・Issues・Pull requestsの読取り／書込み、Checks・Commit statuses・Metadataの読取りを付けます。通知・Organization・ルールの取得は認証方式で制限されます。使えない機能は理由を表示します。",style=MaterialTheme.typography.bodySmall)
         HorizontalDivider();Text("登録済みGitHub Appで接続",style=MaterialTheme.typography.titleMedium)
         OutlinedTextField(client,{client=it},label={Text("GitHub AppのClient ID")},modifier=Modifier.fillMaxWidth(),enabled=s.deviceCode.isEmpty())
@@ -158,7 +160,7 @@ class MainActivity:ComponentActivity(){
         if(recent.isNotEmpty()){item{Text("最近使った",style=MaterialTheme.typography.titleMedium)};items(recent,key={"recent-${it.fullName}"}){RepoCard(it,s,vm)}}
         item{Text("取得済み ${s.repos.size}件${if(s.more)" · 続きあり"else""}",style=MaterialTheme.typography.bodySmall)}
         items(found.filter{it !in pinned&&it !in recent},key={it.fullName}){RepoCard(it,s,vm)}
-        if(found.isEmpty()&&!s.busy)item{Empty("該当するリポジトリがありません。権限と取得済み範囲も確認してください。")}
+        if(found.isEmpty()&&!s.busy&&s.error.isBlank())item{Empty("該当するリポジトリがありません。権限と取得済み範囲も確認してください。")}
         if(s.more)item{OutlinedButton(onClick=vm::more,enabled=!s.busy,modifier=Modifier.fillMaxWidth()){Text("さらに取得")}}
     }
 }
@@ -171,12 +173,12 @@ class MainActivity:ComponentActivity(){
         if(s.repoKind=="files"){
             item{FlowRow{TextButton(onClick={vm.directory("")}){Text("root")};s.route.path.split('/').filter{it.isNotEmpty()}.forEachIndexed{i,p->TextButton(onClick={vm.directory(s.route.path.split('/').take(i+1).joinToString("/"))}){Text("/ $p")}}}}
             items(s.entries.sortedWith(compareBy<Entry>{it.type!="dir"}.thenBy{it.name}),key={it.path}){entry->Card(onClick={if(entry.type=="dir")vm.directory(entry.path)else vm.openFile(entry.path)},modifier=Modifier.fillMaxWidth()){Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically){Icon(if(entry.type=="dir")Icons.Default.Folder else Icons.Default.Description,null,tint=MaterialTheme.colorScheme.primary);Text(entry.name,Modifier.weight(1f).padding(start=12.dp));if(entry.type!="dir")Text("${entry.size} B",style=MaterialTheme.typography.bodySmall)}}}
-            if(s.entries.isEmpty()&&!s.busy)item{Empty("ファイルがないか、空のリポジトリです。")}
+            if(s.entries.isEmpty()&&!s.busy&&s.error.isBlank())item{Empty("ファイルがないか、空のリポジトリです。")}
         }else{
             item{FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){FilterChip(selected=s.itemState=="open",onClick={vm.itemState("open")},label={Text("Open")});FilterChip(selected=s.itemState=="closed",onClick={vm.itemState("closed")},label={Text("Closed")});Button(onClick={form(if(s.repoKind=="pr")"new-pr"else"new-issue")},enabled=!s.busy){Text("作成")}}}
             item{OutlinedTextField(search,{search=it},label={Text("取得済みのタイトル・ラベル・担当で絞る")},modifier=Modifier.fillMaxWidth())}
             items(s.items.filter{"${it.title} ${it.labels.joinToString()} ${it.assignees.joinToString()}".contains(search,true)},key={it.key}){ItemCard(it,vm)}
-            if(s.items.isEmpty()&&!s.busy)item{Empty("該当する項目がありません")}
+            if(s.items.isEmpty()&&!s.busy&&s.error.isBlank())item{Empty("該当する項目がありません")}
             if(s.more)item{OutlinedButton(onClick=vm::more,enabled=!s.busy){Text("さらに取得")}}
         }
     }
@@ -238,7 +240,7 @@ class MainActivity:ComponentActivity(){
     }
     inline?.let{(path,line,side)->var body by rememberSaveable(path,line,side){mutableStateOf("")};var submitted by remember{mutableStateOf(false)};LaunchedEffect(s.busy,s.error){if(submitted&&!s.busy&&s.error.isEmpty()&&s.notice.isNotEmpty())inline=null};AlertDialog(onDismissRequest={if(!s.writing)inline=null},title={Text("差分にコメント")},text={Column{Text("$path:$line ($side)");OutlinedTextField(body,{body=it},label={Text("コメント")},enabled=!s.writing);if(s.error.isNotEmpty())Text(s.error,color=MaterialTheme.colorScheme.error)}},confirmButton={TextButton(onClick={submitted=true;vm.inline(path,line,side,body)},enabled=body.isNotBlank()&&!s.busy){Text("送信")}},dismissButton={TextButton(onClick={inline=null},enabled=!s.writing){Text("キャンセル")}})}
 }
-@Composable fun InboxScreen(s:UiState,vm:ForgeViewModel,allRead:()->Unit){LazyColumn(contentPadding=PaddingValues(20.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){item{Text("受信箱",style=MaterialTheme.typography.headlineLarge);TextButton(onClick=allRead,enabled=!s.busy){Text("すべて既読")}};items(s.notifications,key={it.id}){n->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(14.dp)){Text("${n.repo} · ${if(n.unread)"未読"else"既読"}",style=MaterialTheme.typography.bodySmall);Text(n.title,style=MaterialTheme.typography.titleMedium);Text(n.reason);FlowRow{if(n.kind in setOf("Issue","PullRequest")&&n.number>0)TextButton(onClick={vm.notification(n)},enabled=!s.busy){Text("開く")};if(n.unread)TextButton(onClick={vm.read(n.id)},enabled=!s.busy){Text("既読にする")}}}}};if(s.notifications.isEmpty()&&!s.busy)item{Empty("通知がありません。権限不足は上に理由を表示します。")};if(s.more)item{OutlinedButton(onClick=vm::more,enabled=!s.busy){Text("さらに取得")}}}}
+@Composable fun InboxScreen(s:UiState,vm:ForgeViewModel,web:(String)->Unit,allRead:()->Unit){LazyColumn(contentPadding=PaddingValues(20.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){item{Text("受信箱",style=MaterialTheme.typography.headlineLarge);TextButton(onClick=allRead,enabled=!s.busy&&s.notificationsSupported){Text("すべて既読")};TextButton(onClick={web("https://github.com/notifications")}){Text("GitHubの通知を開く")}};items(s.notifications,key={it.id}){n->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(14.dp)){Text("${n.repo} · ${if(n.unread)"未読"else"既読"}",style=MaterialTheme.typography.bodySmall);Text(n.title,style=MaterialTheme.typography.titleMedium);Text(n.reason);FlowRow{if(n.kind in setOf("Issue","PullRequest")&&n.number>0)TextButton(onClick={vm.notification(n)},enabled=!s.busy){Text("開く")};if(n.unread)TextButton(onClick={vm.read(n.id)},enabled=!s.busy){Text("既読にする")}}}}};if(s.notifications.isEmpty()&&!s.busy&&s.error.isBlank())item{Empty("通知がありません。権限不足は上に理由を表示します。")};if(s.more)item{OutlinedButton(onClick=vm::more,enabled=!s.busy){Text("さらに取得")}}}}
 @Composable fun ActionForm(action:String,s:UiState,vm:ForgeViewModel,close:()->Unit){
     val item=s.detail?.item
     var title by rememberSaveable(action){mutableStateOf(if(action=="edit-issue")item?.title.orEmpty()else"")};var body by rememberSaveable(action){mutableStateOf(if(action=="edit-issue")item?.body.orEmpty()else"")}

@@ -168,6 +168,6 @@ class GitHubRepository(val api: GitHubApi) {
         return PageResult(list,list.size==50)
     }
     suspend fun markRead(id:String) { require(id.all { it.isDigit() });api.request("PATCH","notifications/threads/$id") }
-    suspend fun markAllRead() { api.request("PUT","notifications",JSONObject().put("last_read_at",java.time.Instant.now().toString())) }
+    suspend fun markAllRead():Boolean { return api.reply("PUT","notifications",JSONObject().put("last_read_at",java.time.Instant.now().toString())).code!=202 }
     fun newBranch() = "forgedeck/change-${UUID.randomUUID().toString().take(12)}"
 }

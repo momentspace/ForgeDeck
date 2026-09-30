@@ -27,7 +27,7 @@ class LocalStore(context: Context) {
         val parts = packed.split(':'); val c = Cipher.getInstance("AES/GCM/NoPadding")
         c.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, Base64.getDecoder().decode(parts[0])))
         String(c.doFinal(Base64.getDecoder().decode(parts[1])), Charsets.UTF_8)
-    }.getOrElse { vault.edit().clear().commit(); "" } }
+    }.getOrElse { expire(); "" } }
     @Synchronized fun saveToken(token: String, login: String) {
         val c = Cipher.getInstance("AES/GCM/NoPadding"); c.init(Cipher.ENCRYPT_MODE, key())
         val encrypted = Base64.getEncoder().encodeToString(c.iv) + ":" + Base64.getEncoder().encodeToString(c.doFinal(token.toByteArray()))
@@ -56,5 +56,6 @@ class LocalStore(context: Context) {
     var theme: String
         get() = prefs.getString("theme","system") ?: "system"
         set(value) { prefs.edit().putString("theme",value).commit() }
+    fun expire(){vault.edit().remove("token").commit();cache.edit().clear().commit()}
     fun logout() { val profile=login; vault.edit().clear().commit();cache.edit().clear().commit();prefs.edit().apply { prefs.all.keys.filter { it.startsWith("$profile|") }.forEach { remove(it) } }.commit();KeyStore.getInstance("AndroidKeyStore").apply { load(null);deleteEntry(keyAlias) } }
 }

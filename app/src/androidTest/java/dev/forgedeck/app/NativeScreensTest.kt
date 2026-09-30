@@ -1,6 +1,14 @@
 package dev.forgedeck.app
 
 import android.graphics.Bitmap
+import android.content.ContentValues
+import android.os.Build
+import android.provider.MediaStore
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
@@ -21,13 +29,20 @@ class NativeScreensTest {
         val vm=ForgeViewModel(store)
         compose.setContent {
             val density=LocalDensity.current.density
-            CompositionLocalProvider(LocalDensity provides Density(density,fontScale)) { ForgeApp(vm,state) }
+            CompositionLocalProvider(LocalDensity provides Density(density,fontScale)) { Box(Modifier.width(320.dp).fillMaxHeight()){ForgeApp(vm,state)} }
         }
     }
     private fun capture(name:String) {
         compose.waitForIdle()
-        val dir=File(context.getExternalFilesDir(null),"screenshots").apply{mkdirs()}
-        File(dir,"$name.png").outputStream().use { compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG,100,it) }
+        val bitmap=compose.onRoot().captureToImage().asAndroidBitmap()
+        if(Build.VERSION.SDK_INT>=29) {
+            val values=ContentValues().apply{put(MediaStore.Images.Media.DISPLAY_NAME,"$name.png");put(MediaStore.Images.Media.MIME_TYPE,"image/png");put(MediaStore.Images.Media.RELATIVE_PATH,"Pictures/ForgeDeckScreenshots")}
+            val uri=context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,values)!!
+            context.contentResolver.openOutputStream(uri)!!.use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}
+        } else {
+            val dir=File(context.getExternalFilesDir(null),"screenshots").apply{mkdirs()}
+            File(dir,"$name.png").outputStream().use {bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}
+        }
     }
     @Test fun loginDoesNotAskForGitHubPassword() {
         render(UiState())
@@ -52,7 +67,7 @@ class NativeScreensTest {
         capture("03-deck")
     }
     @Test fun fileBranchAndPathRemainExplicitWithLargeText() {
-        render(UiState(login="sample",route=Route(Page.FILE,"sample/ForgeDeck","feature/files","src/App.kt"),selectedRepo=Repo("sample/ForgeDeck",canPush=true),document=Document("src/App.kt","sha","fun main() {\n    println(\"ForgeDeck\")\n}",55)),fontScale=1.6f)
+        render(UiState(login="sample",route=Route(Page.FILE,"sample/ForgeDeck","feature/files","src/App.kt"),selectedRepo=Repo("sample/ForgeDeck",canPush=true),document=Document("src/App.kt","sha","fun main() {\n    println(\"ForgeDeck\")\n}",55)),fontScale=2f)
         compose.onNodeWithText("feature/files").assertIsDisplayed()
         compose.onNodeWithText("src/App.kt").assertIsDisplayed()
         compose.onNodeWithText("編集",substring=false).assertIsDisplayed()

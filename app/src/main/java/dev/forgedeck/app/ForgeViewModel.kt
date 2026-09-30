@@ -31,16 +31,18 @@ data class UiState(
     val page: Int = 1, val more: Boolean = false, val repoKind: String = "files", val itemState: String = "open", val repoQuery: String = "",
     val pins: Set<String> = emptySet(), val recent: List<String> = emptyList(), val waiting: Set<String> = emptySet(),
     val editor: Editor? = null, val pending: PendingPr? = null, val theme: String = "system", val cacheTime: Long? = null,
-    val deviceCode: String = "", val deviceUrl: String = ""
+    val deviceCode: String = "", val deviceUrl: String = "", val notificationsSupported: Boolean = true
 )
 class ForgeViewModel(val store: LocalStore): ViewModel() {
     private var credential = store.token()
-    private val mutable = MutableStateFlow(UiState(login=if(credential.isNotBlank())store.login else "",theme=store.theme,pins=store.pins(),recent=store.recent(),waiting=store.waiting(),pending=store.pending()))
+    private fun notificationSupport(token:String)=!token.startsWith("github_pat_")&&!token.startsWith("ghu_")
+    private val mutable = MutableStateFlow(UiState(login=if(credential.isNotBlank())store.login else "",theme=store.theme,pins=store.pins(),recent=store.recent(),waiting=store.waiting(),pending=store.pending(),notificationsSupported=notificationSupport(credential)))
     val ui = mutable.asStateFlow()
     private val api = GitHubApi({credential},store::cachePut,store::cacheGet,{time -> mutable.update { it.copy(cacheTime=time) }})
     private val repository = GitHubRepository(api)
     private var readJob: Job? = null
     private var authJob: Job? = null
+    private var authGeneration=0
     private var operationId = 0
     private val history = mutableListOf<UiState>()
     private var pendingLink: LinkTarget? = null
@@ -58,7 +60,7 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
             try { withContext(Dispatchers.IO) { block() } }
             catch(e:CancellationException){throw e}
             catch(e:Exception){
-                if(e is ApiError && e.code==401) { credential="";clearAccount();history.clear();mutable.value=UiState(theme=store.theme,error=e.message.orEmpty()) }
+                if(e is ApiError && e.code==401) { flushDraft();credential="";store.expire();history.clear();mutable.value=UiState(theme=store.theme,error=e.message.orEmpty(),notice="下書きは残しています。同じアカウントで再接続してください。") }
                 else mutable.update { it.copy(error=e.message?.take(600) ?: "処理に失敗しました。下書きは端末に保持しています。") }
             } finally { if(currentId==operationId)mutable.update { it.copy(busy=false,writing=false) } }
         }
@@ -66,12 +68,12 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
     }
     fun login(token:String) {
         if(token.isBlank()) { mutable.update { it.copy(error="トークンを入力してください") };return }
-        authJob?.cancel()
+        authGeneration++;authJob?.cancel()
         run(true) {
             val candidate=GitHubRepository(GitHubApi({token.trim()}));val user=candidate.identity()
             if(store.login.isNotBlank() && store.login!=user)clearAccount()
             store.saveToken(token.trim(),user);credential=token.trim();history.clear()
-            mutable.value=UiState(login=user,theme=store.theme,pins=store.pins(),recent=store.recent(),waiting=store.waiting(),pending=store.pending(),busy=true,writing=true)
+            mutable.value=UiState(login=user,theme=store.theme,pins=store.pins(),recent=store.recent(),waiting=store.waiting(),pending=store.pending(),busy=true,writing=true,notificationsSupported=notificationSupport(credential))
             val target=pendingLink;pendingLink=null
             if(target==null)loadRepos(1) else if(target.number==0){val repo=repository.repo(target.repo);go(Route(Page.FILES,target.repo,repo.defaultBranch));mutable.update{it.copy(selectedRepo=repo,repoKind="files")};loadFiles()} else showSaved(Item(target.repo,target.number,"読込中","","",target.isPr,"open",""),"接続しました")
         }
@@ -79,6 +81,7 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
     fun startDeviceFlow(clientId:String) {
         if(clientId.isBlank())return
         authJob?.cancel()
+        val generation=++authGeneration
         authJob=viewModelScope.launch {
             mutable.update { it.copy(busy=true,error="") }
             try {
@@ -100,11 +103,11 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
                 }
                 error("認証コードの有効期限が切れました")
             }catch(e:CancellationException){throw e}catch(e:Exception){mutable.update { it.copy(error=e.message.orEmpty(),deviceCode="",deviceUrl="") }}
-            finally {if(authJob!=null)mutable.update { it.copy(busy=false) }}
+            finally {if(generation==authGeneration&&authJob!=null)mutable.update { it.copy(busy=false) }}
         }
     }
-    fun cancelDeviceFlow(){authJob?.cancel();mutable.update { it.copy(deviceCode="",deviceUrl="",busy=false) }}
-    fun logout(){if(mutable.value.writing)return;readJob?.cancel();authJob?.cancel();credential="";clearAccount();history.clear();mutable.value=UiState(theme=store.theme)}
+    fun cancelDeviceFlow(){authGeneration++;authJob?.cancel();mutable.update { it.copy(deviceCode="",deviceUrl="",busy=false) }}
+    fun logout(){if(mutable.value.writing)return;readJob?.cancel();authGeneration++;authJob?.cancel();credential="";clearAccount();history.clear();mutable.value=UiState(theme=store.theme)}
     fun theme(value:String){store.theme=value;mutable.update { it.copy(theme=value) }}
     fun report(message:String){mutable.update { it.copy(error=message) }}
     fun clearError(){mutable.update { it.copy(error="",notice="") }}
@@ -143,7 +146,7 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
         Page.FILE->{val d=repository.document(s.route.repo,s.route.branch,s.route.path);mutable.update { it.copy(document=d) }}
         Page.ITEM->{s.detail?.item?.let { item -> val detail=repository.detail(item);mutable.update { it.copy(detail=detail,deckDetails=it.deckDetails+(item.key to detail)) } }}
         Page.DECK->loadDeck(s.page)
-        Page.INBOX->{val result=repository.notifications(s.page);mutable.update { it.copy(notifications=((if(s.page>1)it.notifications else emptyList())+result.values).distinctBy { n->n.id },more=result.more) }}
+        Page.INBOX->{check(s.notificationsSupported){"この認証方式はGitHubの通知APIに対応していません。GitHubの通知をブラウザで開けます。"};val result=repository.notifications(s.page);mutable.update { it.copy(notifications=((if(s.page>1)it.notifications else emptyList())+result.values).distinctBy { n->n.id },more=result.more) }}
         else->Unit
     } }}
     fun more(){mutable.update { it.copy(page=it.page+1) };refresh()}
@@ -164,11 +167,13 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
         catch(e:Exception){ if(e is ApiError && e.code==401)throw e;mutable.update { it.copy(notice="$message。詳細の再取得に失敗しました。更新で確認できます。") } }
     }
     fun saveEditor(){val e=mutable.value.editor ?: return;flushDraft();run(true){
+        check(mutable.value.pending==null){"前の保存結果を確認するか、続行待ちを解除してください"}
         val p=repository.propose(e){prepared->store.pending(prepared);mutable.update { it.copy(pending=prepared) }}
         store.discard(e);mutable.update { it.copy(editor=null,route=Route(Page.FILES,p.repo,p.head,""),repoKind="files",notice="ブランチを作成しました。PR作成を確認しています。") }
         val item=repository.createPr(p);store.pending(null);mutable.update { it.copy(pending=null) };showSaved(item,"PRを作成しました")
     }}
-    fun retryPending(){val p=mutable.value.pending ?: return;run(true){val item=repository.createPr(p);store.pending(null);mutable.update { it.copy(pending=null) };showSaved(item,"PRを確認しました")}}
+    fun abandonPending(){if(mutable.value.busy)return;store.pending(null);mutable.update{it.copy(pending=null,notice="続行待ちを解除しました。作成済みのブランチやPRはGitHubに残ります。")}}
+    fun retryPending(){val p=mutable.value.pending ?: return;run(true){val item=repository.createPr(p);mutable.value.editor?.takeIf{it.repo==p.repo&&it.target==p.head}?.let(store::discard);store.pending(null);mutable.update { it.copy(pending=null) };showSaved(item,"PRを確認しました")}}
     fun issue(title:String,body:String,labels:List<String>,assignees:List<String>,number:Int=0){val repo=mutable.value.route.repo;run(true){val item=repository.issue(repo,title,body,number,labels,assignees);showSaved(item,"Issueを保存しました")}}
     fun comment(body:String){val item=mutable.value.detail?.item ?: return;run(true){repository.comment(item,body);showSaved(item,"コメントを追加しました")}}
     fun state(value:String){val item=mutable.value.detail?.item ?: return;run(true){repository.itemState(item,value);showSaved(item.copy(state=value),"状態を更新しました")}}
@@ -179,10 +184,11 @@ class ForgeViewModel(val store: LocalStore): ViewModel() {
     
     fun newPr(base:String,head:String,title:String,body:String){val repo=mutable.value.route.repo;run(true){
         require(validBranch(base)&&validBranch(head)&&base!=head&&title.isNotBlank())
+        check(mutable.value.pending==null){"前の保存結果を確認するか、続行待ちを解除してください"}
         val p=PendingPr(repo,base,head,title,body=body);store.pending(p);mutable.update{it.copy(pending=p)}
         val item=repository.createPr(p);store.pending(null);mutable.update{it.copy(pending=null)};showSaved(item,"PRを作成しました")
     }}
     fun notification(n:Notification){run(n.unread){if(n.unread)repository.markRead(n.id);val item=Item(n.repo,n.number,"読込中","","",n.kind=="PullRequest","open","");val detail=repository.detail(item);go(Route(Page.ITEM,n.repo,number=n.number));mutable.update { it.copy(detail=detail,notifications=it.notifications.map {old->if(old.id==n.id)old.copy(unread=false)else old }) }}}
 
-    fun allRead(){run(true){repository.markAllRead();mutable.update { it.copy(notifications=it.notifications.map { n->n.copy(unread=false) }) }}}
+    fun allRead(){run(true){val complete=repository.markAllRead();mutable.update { it.copy(notifications=if(complete)it.notifications.map { n->n.copy(unread=false) }else it.notifications,notice=if(complete)"既読にしました"else"GitHubが既読処理を受け付けました。処理中のため、更新で結果を確認してください。") }}}
 }

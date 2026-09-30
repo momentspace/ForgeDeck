@@ -74,4 +74,13 @@ class ApiTest {
             assertEquals(2,server.requestCount);repeat(2){assertEquals("GET",server.takeRequest().method)}
         } finally {server.shutdown()}
     }
+
+    @Test fun acceptedBulkReadIsNotReportedAsAlreadyRead()=runBlocking {
+        val server=MockWebServer();server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(202).setBody("{\"message\":\"Processing\"}"))
+            val repository=GitHubRepository(GitHubApi({"test"},base=server.url("/")))
+            assertFalse(repository.markAllRead());assertEquals("PUT",server.takeRequest().method)
+        } finally {server.shutdown()}
+    }
 }

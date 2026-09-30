@@ -1,27 +1,42 @@
 # ForgeDeck
 
-リポジトリに迷わず入れて、ファイルを扱えて、Issue / PR の次の一手が分かる Android GitHub クライアント。
+いつものリポジトリをすぐ開き、ファイルを扱い、Issue / PR の次の一手を見つけるAndroid GitHubクライアント。
 
-現在は **コンセプト・操作可能な画面サンプル・実装計画** の段階です。Android アプリと GitHub API 接続はまだ実装していません。
+**Android版を実装中です。配布・実アカウントでの受入確認が済むまではalphaです。** 開発は [PR #19](https://github.com/momentspace/ForgeDeck/pull/19)、完成条件は [Epic #1](https://github.com/momentspace/ForgeDeck/issues/1) で管理します。Wiki / Projects / Enterprise / 複数アカウントは初期スコープ外です。
+
+## Android版
+
+- リポジトリ一覧、ownerとrepo名、検索、ピン留め、最近使った場所。
+- ブランチとパンくず、UTF-8テキスト・Markdown閲覧、端末への保存。
+- ファイル作成・編集・アップロード・移動・削除の差分確認、新ブランチへの保存、PR作成。SHA競合検知、下書き、途中成功の復旧。
+- Issueの作成・編集・担当・ラベル・コメント・close/reopen。
+- PR作成、概要、差分、チェック、レビュー、行コメント、条件を再確認するSquash merge。
+- **Action Deck**：自分の番 / 待ち / マージ候補。分類理由を表示し、APIで確認した完了関係だけを使ってIssueとPRをまとめる。
+- 通知一覧・既読、repo / Issue / PRリンク、ライト・ダーク。
+
+[インストール・権限・署名と更新](docs/INSTALL.md) / [実装と検証の状況](docs/IMPLEMENTATION.md)。
 
 ## 画面サンプル
 
-[`prototype/index.html`](prototype/index.html) をダウンロードしてブラウザで開いてください。単一ファイル、インストール不要、通信不要です。表示される件数、Issue / PR、CI、ファイルはすべて架空のデモデータです。操作は画面内だけで完結し、GitHub を変更しません。再読込すると元に戻ります。
+[`prototype/index.html`](prototype/index.html) をダウンロードしてブラウザで開けます。単一ファイル、通信不要。データと操作結果はすべて架空です。
 
-- **リポジトリ**：検索、ピン留め、最近使ったリポジトリ、常に見える owner / repo。
-- **ファイル**：ブランチ、パンくず、閲覧・編集、変更差分、別ブランチと PR による保存体験。
-- **Deck**：リポジトリを横断して「自分の番」「待ち」「マージ候補」を根拠付きで分類。Issue と関連 PR を一緒に確認。
-- **Issue / PR**：本文、コメント、チェック、差分、確認画面。作成や操作もデモです。
+「ForgeDeck → README.md → 編集 → 変更を確認」、次に「Deck → レビュー依頼 → 差分」を試してください。
 
-最初は「ForgeDeck → README.md → 編集 → 変更を確認」、次に「Deck → レビューを頼まれた PR → 差分」を試してください。
+## 開発
 
-## 設計と計画
+Android 8.0以上（API 26）、compile / target SDK 35、JDK 17、Gradle 8.11.1、AGP 8.9.2、Kotlin 2.1.20、Compose BOM 2025.04.01。
 
-- [プロダクトコンセプトと情報設計](docs/CONCEPT.md)
-- [完成までの計画と受入条件](docs/ROADMAP.md)
-- [画面サンプルの操作・確認結果](docs/PROTOTYPE.md)
-- [ADR: Android とデータ層](docs/adr/0001-android-architecture.md)
-- [ADR: 認証と権限](docs/adr/0002-authentication.md)
-- [ADR: 次の一手の分類](docs/adr/0003-action-deck.md)
+Android Studioでこのディレクトリを開くか、SDK 35とJDK 17を用意して次を実行します。
 
-Wiki と Projects は初期スコープ外です。最初の完成目標は GitHub.com の個人利用向け APK。ストア公開と Enterprise Server は別フェーズです。
+```sh
+./gradlew :app:lintDebug :app:testDebugUnitTest :app:assembleDebug
+./gradlew :app:connectedDebugAndroidTest
+```
+
+APKは `app/build/outputs/apk/debug/app-debug.apk`。PRのActionsにもAPK、テスト・lint結果、ネイティブ画面の画像を保存します。デバッグAPKには本番用の署名鍵を含めません。署名なしのrelease APKはそのままインストールできません。
+
+## 設計
+
+- [コンセプト](docs/CONCEPT.md) / [完成までの計画](docs/ROADMAP.md) / [サンプルの操作](docs/PROTOTYPE.md)
+- [ADR: Android](docs/adr/0001-android-architecture.md) / [ADR: 認証](docs/adr/0002-authentication.md) / [ADR: Deck](docs/adr/0003-action-deck.md)
+- [依存ライブラリとライセンス](docs/THIRD_PARTY.md)

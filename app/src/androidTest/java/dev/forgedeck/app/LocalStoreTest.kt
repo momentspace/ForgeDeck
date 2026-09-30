@@ -26,4 +26,12 @@ class LocalStoreTest {
         assertEquals("My draft",restored.text);assertEquals("old-sha",restored.originalSha);assertEquals("Original",restored.original)
         store.logout()
     }
+
+    @Test fun expiredCredentialsDoNotEraseDrafts() {
+        val store=LocalStore(context);store.logout();store.saveToken("test","sample")
+        val e=Editor("sample/ForgeDeck","master","README.md","README.md","sha","Original","Draft",target="forgedeck/test",title="Update")
+        store.draft(e);store.expire()
+        assertEquals("",store.token());assertEquals("sample",store.login);assertEquals("Draft",store.restore(e.copy(text="Original")).text)
+        store.logout()
+    }
 }
