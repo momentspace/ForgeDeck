@@ -2,7 +2,7 @@
 
 いつものリポジトリをすぐ開き、ファイルを扱い、Issue / PR の次の一手を見つけるAndroid GitHubクライアント。
 
-**Android試用版（alpha）が利用できます。実アカウント・実機・配布署名の受入確認は未完了です。** 開発は [PR #19](https://github.com/momentspace/ForgeDeck/pull/19)、完成条件は [Epic #1](https://github.com/momentspace/ForgeDeck/issues/1) で管理します。Wiki / Projects / Enterprise / 複数アカウントは初期スコープ外です。
+**Android試用版（alpha）が利用できます。実アカウント・実機・配布署名の受入確認は未完了です。** Androidの基本実装は [PR #19](https://github.com/momentspace/ForgeDeck/pull/19) で統合済み。完成条件は [Epic #1](https://github.com/momentspace/ForgeDeck/issues/1) で管理します。Wiki / Projects / Enterprise / 複数アカウントは初期スコープ外です。
 
 ## Android版
 
@@ -12,7 +12,7 @@
 - リポジトリ一覧、ownerとrepo名、検索、ピン留め、最近使った場所。
 - ブランチとパンくず、UTF-8テキスト・Markdown閲覧、端末への保存。
 - ファイル作成・編集・アップロード・移動・削除の差分確認、新ブランチへの保存、PR作成。SHA競合検知、下書き、途中成功の復旧。
-- Issueの作成・編集・担当・ラベル・コメント・close/reopen。
+- Issueの作成・編集・担当・ラベル・コメント・close/reopen。入力下書きと、送信結果不明時の照会。
 - PR作成、概要、差分、チェック、レビュー、行コメント、条件を再確認するSquash merge。
 - **Action Deck**：自分の番 / 待ち / マージ候補。分類理由を表示し、APIで確認した完了関係だけを使ってIssueとPRをまとめる。
 - 通知一覧・既読、repo / Issue / PRリンク、ライト・ダーク。
